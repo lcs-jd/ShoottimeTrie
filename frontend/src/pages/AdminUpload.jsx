@@ -16,123 +16,99 @@ export default function AdminUpload() {
   const dashboardRef = useRef(null);
   const navigate = useNavigate();
 
-  // Initialiser Uppy après que le DOM du dashboard soit monté
   useEffect(() => {
     if (!session || !dashboardRef.current) return;
-
     const uppy = new Uppy({
       autoProceed: false,
-      restrictions: {
-        allowedFileTypes: ['image/*'],
-        maxFileSize: 150 * 1024 * 1024,
-      },
+      restrictions: { allowedFileTypes: ['image/*'], maxFileSize: 150 * 1024 * 1024 },
     });
-
     uppy.use(Dashboard, {
-      target: dashboardRef.current,
-      inline: true,
-      height: 450,
-      showProgressDetails: true,
-      proudlyDisplayPoweredByUppy: false,
-      locale: {
-        strings: {
-          dropPasteFiles: 'Glissez vos photos ici ou %{browseFiles}',
-          browseFiles: 'parcourez',
-          uploading: 'Upload en cours...',
-          complete: 'Terminé',
-          uploadFailed: 'Échec',
-          retry: 'Réessayer',
-          cancel: 'Annuler',
-          filesUploadedOfTotal: {
-            0: '%{complete} sur %{smart_count} photo uploadée',
-            1: '%{complete} sur %{smart_count} photos uploadées',
-          },
-        },
-      },
+      target: dashboardRef.current, inline: true, height: 400,
+      showProgressDetails: true, proudlyDisplayPoweredByUppy: false,
+      locale: { strings: {
+        dropPasteFiles: 'Glissez vos photos ici ou %{browseFiles}',
+        browseFiles: 'parcourez', uploading: 'Upload en cours…',
+        complete: 'Terminé', uploadFailed: 'Échec', retry: 'Réessayer', cancel: 'Annuler',
+        filesUploadedOfTotal: { 0: '%{complete} sur %{smart_count} photo', 1: '%{complete} sur %{smart_count} photos' },
+      }},
     });
-
     uppy.use(XHRUpload, {
       endpoint: `/api/sessions/${session.id}/upload`,
-      limit: 3,
-      retryDelays: [0, 1000, 3000, 5000],
-      fieldName: 'file',
-      bundle: false,
-      withCredentials: true,
+      limit: 3, retryDelays: [0, 1000, 3000, 5000],
+      fieldName: 'file', bundle: false, withCredentials: true,
     });
-
     uppyRef.current = uppy;
-
-    return () => {
-      if (typeof uppy.destroy === 'function') uppy.destroy();
-      else uppy.close?.({ reason: 'unmount' });
-    };
+    return () => { typeof uppy.destroy === 'function' ? uppy.destroy() : uppy.close?.({ reason: 'unmount' }); };
   }, [session]);
 
   async function createSession(e) {
     e.preventDefault();
     if (!sessionName.trim()) return;
-    setCreating(true);
-    setError('');
-
+    setCreating(true); setError('');
     try {
       const res = await apiFetch('/api/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: sessionName.trim() }),
       });
       if (!res.ok) throw new Error('Erreur serveur');
-      const data = await res.json();
-      setSession(data);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setCreating(false);
-    }
+      setSession(await res.json());
+    } catch (err) { setError(err.message); }
+    finally { setCreating(false); }
   }
 
   return (
-    <div className="page" style={{ maxWidth: 800 }}>
-      <h1 className="page-title">Nouvelle session d'upload</h1>
+    <div className="page fadein" style={{ maxWidth: 760 }}>
+      <div className="page-header">
+        <h1 className="page-title">Nouvel évènement</h1>
+      </div>
 
       {!session ? (
-        <form onSubmit={createSession} className="card" style={{ maxWidth: 480 }}>
-          <label style={{ display: 'block', marginBottom: 8, fontSize: 14, color: 'var(--text-muted)' }}>
-            Nom de la session
-          </label>
-          <input
-            value={sessionName}
-            onChange={e => setSessionName(e.target.value)}
-            placeholder="Ex: Mariage Martin 2024"
-            autoFocus
-          />
-          {error && <p style={{ color: 'var(--danger)', marginTop: 8, fontSize: 13 }}>{error}</p>}
-          <button
-            type="submit"
-            className="btn btn-primary"
-            style={{ marginTop: 16 }}
-            disabled={creating || !sessionName.trim()}
-          >
-            {creating ? 'Création...' : 'Créer et uploader'}
-          </button>
-        </form>
+        <div className="card">
+          <p style={{ fontWeight: 500, marginBottom: 16, color: 'var(--text)' }}>Nommer l'évènement</p>
+          <form onSubmit={createSession}>
+            <label className="label">Nom</label>
+            <input
+              className="input"
+              value={sessionName}
+              onChange={e => setSessionName(e.target.value)}
+              placeholder="Ex : Mariage Martin — Juin 2025"
+              autoFocus
+            />
+            {error && <div className="alert alert-error" style={{ marginTop: 10 }}><span>✕</span> {error}</div>}
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={creating || !sessionName.trim()}
+              style={{ marginTop: 16 }}
+            >
+              {creating && <div className="spinner spinner-dark spinner-sm" />}
+              {creating ? 'Création…' : 'Créer et uploader →'}
+            </button>
+          </form>
+        </div>
       ) : (
         <div>
-          <div className="card" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontWeight: 600 }}>{session.name}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Session créée</div>
+          <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 32, height: 32, background: 'rgba(34,197,94,.1)', border: '1px solid rgba(34,197,94,.3)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--success)', fontSize: 14 }}>✓</div>
+              <div>
+                <div style={{ fontWeight: 500, color: 'var(--text)' }}>{session.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--success)', marginTop: 1 }}>Évènement créé — uploadez vos photos</div>
+              </div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-ghost" onClick={() => navigate(`/sort/${session.id}`)}>
-                Aller au tri →
-              </button>
-              <button className="btn btn-primary" onClick={() => navigate(`/dashboard/${session.id}`)}>
-                Dashboard
-              </button>
+              <button className="btn btn-ghost btn-sm" onClick={() => navigate(`/sort/${session.id}`)}>Aller au tri</button>
+              <button className="btn btn-primary btn-sm" onClick={() => navigate(`/dashboard/${session.id}`)}>Dashboard</button>
             </div>
           </div>
 
-          <div ref={dashboardRef} />
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ fontWeight: 500, color: 'var(--text)' }}>Upload des photos</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>JPG, PNG, RAW — 150 Mo max — 3 uploads simultanés</div>
+            </div>
+            <div ref={dashboardRef} />
+          </div>
         </div>
       )}
     </div>

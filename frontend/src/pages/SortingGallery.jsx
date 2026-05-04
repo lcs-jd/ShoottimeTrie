@@ -5,15 +5,13 @@ import PhotoCard from '../components/PhotoCard.jsx';
 import { useSSE } from '../hooks/useSSE.js';
 import { apiFetch } from '../lib/api.js';
 
-const BREAKPOINTS = {
-  default: 4,
-  1100: 3,
-  700: 2,
-  500: 1,
-};
-
-const FILTERS = ['all', 'pending', 'kept', 'discarded'];
-const FILTER_LABELS = { all: 'Toutes', pending: 'À trier', kept: 'Gardées', discarded: 'Rejetées' };
+const BREAKPOINTS = { default: 4, 1280: 4, 1024: 3, 768: 2, 480: 1 };
+const FILTERS = [
+  { key: 'all',       label: 'Toutes'   },
+  { key: 'pending',   label: 'À trier'  },
+  { key: 'kept',      label: 'Gardées'  },
+  { key: 'discarded', label: 'Rejetées' },
+];
 
 export default function SortingGallery() {
   const { sessionId } = useParams();
@@ -22,34 +20,17 @@ export default function SortingGallery() {
   const [session, setSession] = useState(null);
 
   useEffect(() => {
-    apiFetch(`/api/sessions/${sessionId}`)
-      .then(r => r.json())
-      .then(setSession)
-      .catch(console.error);
-
-    apiFetch(`/api/sessions/${sessionId}/photos`)
-      .then(r => r.json())
-      .then(setPhotos)
-      .catch(console.error);
+    apiFetch(`/api/sessions/${sessionId}`).then(r => r.json()).then(setSession).catch(console.error);
+    apiFetch(`/api/sessions/${sessionId}/photos`).then(r => r.json()).then(setPhotos).catch(console.error);
   }, [sessionId]);
 
   useSSE(sessionId, useCallback((event) => {
     if (event.type === 'photo_sorted') {
-      setPhotos(prev => prev.map(p =>
-        p.id === event.photoId ? { ...p, status: event.status } : p
-      ));
+      setPhotos(prev => prev.map(p => p.id === event.photoId ? { ...p, status: event.status } : p));
     } else if (event.type === 'keep_all') {
       setPhotos(prev => prev.map(p => p.status !== 'discarded' ? { ...p, status: 'kept' } : p));
-    } else if (event.type === 'proxy_ready') {
-      apiFetch(`/api/sessions/${sessionId}/photos`)
-        .then(r => r.json())
-        .then(setPhotos)
-        .catch(console.error);
-    } else if (event.type === 'upload_done') {
-      apiFetch(`/api/sessions/${sessionId}/photos`)
-        .then(r => r.json())
-        .then(setPhotos)
-        .catch(console.error);
+    } else if (event.type === 'proxy_ready' || event.type === 'upload_done') {
+      apiFetch(`/api/sessions/${sessionId}/photos`).then(r => r.json()).then(setPhotos).catch(console.error);
     }
   }, [sessionId]));
 
@@ -57,12 +38,10 @@ export default function SortingGallery() {
     await apiFetch(`/api/photos/${photoId}/keep`, { method: 'POST' });
     setPhotos(prev => prev.map(p => p.id === photoId ? { ...p, status: 'kept' } : p));
   }
-
   async function discard(photoId) {
     await apiFetch(`/api/photos/${photoId}/discard`, { method: 'POST' });
     setPhotos(prev => prev.map(p => p.id === photoId ? { ...p, status: 'discarded' } : p));
   }
-
   async function keepAll() {
     const res = await apiFetch(`/api/sessions/${sessionId}/keep-all`, { method: 'POST' });
     if (!res.ok) return;
@@ -70,67 +49,68 @@ export default function SortingGallery() {
   }
 
   const visible = filter === 'all' ? photos : photos.filter(p => p.status === filter);
-
-  const counts = photos.reduce((acc, p) => {
-    acc[p.status] = (acc[p.status] || 0) + 1;
-    return acc;
-  }, {});
+  const counts = photos.reduce((acc, p) => { acc[p.status] = (acc[p.status] || 0) + 1; return acc; }, {});
 
   return (
-    <div className="page" style={{ maxWidth: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+    <div className="page-wide fadein">
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
         <div>
-          <h1 className="page-title" style={{ marginBottom: 4 }}>{session?.name || '...'}</h1>
-          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-            {photos.length} photos · {counts.pending || 0} à trier · {counts.kept || 0} gardées · {counts.discarded || 0} rejetées
+          <div className="breadcrumb">
+            <Link to="/">Évènements</Link>
+            <span className="breadcrumb-sep">›</span>
+            <span style={{ color: 'var(--muted)' }}>{session?.name || '…'}</span>
+          </div>
+          <h1 style={{ fontSize: 20, fontWeight: 600, color: 'var(--text)' }}>{session?.name || '…'}</h1>
+          <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 12, color: 'var(--dim)', flexWrap: 'wrap' }}>
+            <span>{photos.length} photos</span>
+            {counts.pending   > 0 && <span style={{ color: 'var(--muted)' }}>{counts.pending} à trier</span>}
+            {counts.kept      > 0 && <span style={{ color: 'var(--success)' }}>{counts.kept} gardées</span>}
+            {counts.discarded > 0 && <span style={{ color: 'var(--danger)' }}>{counts.discarded} rejetées</span>}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
           <button
-            className="btn btn-secondary"
+            className="btn btn-ghost btn-sm"
             onClick={keepAll}
             disabled={photos.filter(p => p.status !== 'discarded').length === 0}
-            title="Valider toutes les photos non rejetées"
           >
-            Tout valider
+            ✓ Tout valider
           </button>
           <Link to={`/dashboard/${sessionId}`}>
-            <button className="btn btn-primary">Dashboard →</button>
+            <button className="btn btn-primary btn-sm">Dashboard →</button>
           </Link>
         </div>
       </div>
 
+      {/* Filtres */}
       <div className="filter-bar">
-        {FILTERS.map(f => (
+        {FILTERS.map(({ key, label }) => (
           <button
-            key={f}
-            className={`filter-btn ${filter === f ? 'active' : ''}`}
-            onClick={() => setFilter(f)}
+            key={key}
+            className={`filter-btn${filter === key ? ' active' : ''}`}
+            onClick={() => setFilter(key)}
           >
-            {FILTER_LABELS[f]}
-            {f !== 'all' && counts[f] ? ` (${counts[f]})` : ''}
+            {label}
+            {key !== 'all' && counts[key] ? <span className="filter-count">{counts[key]}</span> : null}
           </button>
         ))}
       </div>
 
+      {/* Vide */}
       {visible.length === 0 && (
-        <p style={{ color: 'var(--text-muted)', marginTop: 40, textAlign: 'center' }}>
-          {photos.length === 0 ? 'Aucune photo uploadée pour cette session.' : 'Aucune photo dans ce filtre.'}
-        </p>
+        <div className="empty-state">
+          <div className="empty-state-icon">🖼</div>
+          <div className="empty-state-title">
+            {photos.length === 0 ? 'Aucune photo uploadée' : 'Aucune photo dans ce filtre'}
+          </div>
+        </div>
       )}
 
-      <Masonry
-        breakpointCols={BREAKPOINTS}
-        className="my-masonry-grid"
-        columnClassName="my-masonry-grid_column"
-      >
+      {/* Galerie */}
+      <Masonry breakpointCols={BREAKPOINTS} className="masonry-grid" columnClassName="masonry-col">
         {visible.map(photo => (
-          <PhotoCard
-            key={photo.id}
-            photo={photo}
-            onKeep={() => keep(photo.id)}
-            onDiscard={() => discard(photo.id)}
-          />
+          <PhotoCard key={photo.id} photo={photo} onKeep={() => keep(photo.id)} onDiscard={() => discard(photo.id)} />
         ))}
       </Masonry>
     </div>

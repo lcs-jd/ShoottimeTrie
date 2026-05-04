@@ -79,11 +79,30 @@ export default async function photosRoutes(fastify) {
 
     for (const photo of photos) {
       const absoluteOriginal = path.join(DATA_DIR, photo.original_path);
-      await watermarkQueue.add('apply', {
-        photoId: photo.id,
-        originalPath: absoluteOriginal,
-        sessionId,
-      });
+      await watermarkQueue.add('apply', { photoId: photo.id, originalPath: absoluteOriginal, sessionId });
+    }
+
+    db.prepare("UPDATE sessions SET status = 'processing' WHERE id = ?").run(sessionId);
+    return { queued: photos.length };
+  });
+
+  // Relancer le filigranage sur toutes les photos kept + watermarked (ex: nouveau logo)
+  fastify.post('/api/sessions/:sessionId/reprocess', async (req, reply) => {
+    const { sessionId } = req.params;
+    const photos = db.prepare(
+      "SELECT * FROM photos WHERE session_id = ? AND status IN ('kept', 'watermarked')"
+    ).all(sessionId);
+
+    if (photos.length === 0) return reply.code(400).send({ error: 'no photos to reprocess' });
+
+    // Remettre les watermarked en kept pour qu'ils soient retraités
+    db.prepare(
+      "UPDATE photos SET status = 'kept', watermarked_path = NULL WHERE session_id = ? AND status = 'watermarked'"
+    ).run(sessionId);
+
+    for (const photo of photos) {
+      const absoluteOriginal = path.join(DATA_DIR, photo.original_path);
+      await watermarkQueue.add('apply', { photoId: photo.id, originalPath: absoluteOriginal, sessionId });
     }
 
     db.prepare("UPDATE sessions SET status = 'processing' WHERE id = ?").run(sessionId);

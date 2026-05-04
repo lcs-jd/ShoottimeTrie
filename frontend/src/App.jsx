@@ -12,8 +12,11 @@ function AppShell() {
 
   if (authenticated === null) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <span style={{ color: 'var(--text-muted)' }}>Chargement...</span>
+      <div className="loading-screen">
+        <div className="loading-inner">
+          <div className="spinner" />
+          Chargement
+        </div>
       </div>
     );
   }
@@ -21,22 +24,34 @@ function AppShell() {
   if (!authenticated) return <Login />;
 
   return (
-    <>
-      <nav>
-        <span className="logo">ShoottimeTrie</span>
+    <div className="app-shell">
+      <nav className="nav">
+        <NavLink to="/" className="nav-logo">
+          <div className="nav-logo-icon">S</div>
+          <span className="nav-logo-text">ShoottimeTrie</span>
+        </NavLink>
+
         <div className="nav-links">
-          <NavLink to="/">Sessions</NavLink>
-          <NavLink to="/upload">Upload</NavLink>
-          <NavLink to="/watermark">Filigrane</NavLink>
-          <button
-            className="btn btn-ghost"
-            style={{ fontSize: 13, padding: '6px 12px' }}
-            onClick={logout}
-          >
-            Déconnexion
-          </button>
+          <NavLink to="/" end className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
+            <span className="nav-link-icon">⊞</span>
+            <span className="nav-link-label">Évènements</span>
+          </NavLink>
+          <NavLink to="/upload" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
+            <span className="nav-link-icon">↑</span>
+            <span className="nav-link-label">Upload</span>
+          </NavLink>
+          <NavLink to="/watermark" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
+            <span className="nav-link-icon">◈</span>
+            <span className="nav-link-label">Filigrane</span>
+          </NavLink>
         </div>
+
+        <button className="nav-logout" onClick={logout}>
+          <span style={{ fontSize: 11 }}>⏻</span>
+          <span className="nav-link-label">Quitter</span>
+        </button>
       </nav>
+
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/upload" element={<AdminUpload />} />
@@ -45,7 +60,7 @@ function AppShell() {
         <Route path="/watermark" element={<WatermarkSettings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </>
+    </div>
   );
 }
 

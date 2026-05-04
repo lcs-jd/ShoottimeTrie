@@ -62,11 +62,26 @@ export default async function uploadRoutes(fastify) {
     const sessionDir = path.join(ORIGINALS_DIR, req.params.id);
     fs.mkdirSync(sessionDir, { recursive: true });
 
+    // Charger les noms de fichiers déjà présents dans la session
+    const existingFilenames = new Set(
+      db.prepare('SELECT filename FROM photos WHERE session_id = ?')
+        .all(req.params.id)
+        .map(r => r.filename)
+    );
+
     const parts = req.parts({ limits: { fileSize: 150 * 1024 * 1024 } });
     const uploaded = [];
+    const duplicates = [];
 
     for await (const part of parts) {
       if (part.type !== 'file') continue;
+
+      if (existingFilenames.has(part.filename)) {
+        // Vider le stream sans écrire
+        part.file.resume();
+        duplicates.push(part.filename);
+        continue;
+      }
 
       const photoId = randomUUID();
       const ext = path.extname(part.filename) || '.jpg';
@@ -87,10 +102,11 @@ export default async function uploadRoutes(fastify) {
         sessionId: req.params.id,
       });
 
+      existingFilenames.add(part.filename);
       broadcast(req.params.id, { type: 'upload_done', photoId, filename: part.filename });
       uploaded.push({ photoId, filename: part.filename });
     }
 
-    return { uploaded };
+    return { uploaded, duplicates };
   });
 }

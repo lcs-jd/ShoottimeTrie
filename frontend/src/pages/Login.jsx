@@ -12,55 +12,48 @@ export default function Login() {
     setLoading(true);
     setError('');
     const { ok, error: err } = await login(password);
-    if (!ok) setError(err || 'Erreur de connexion.');
+    if (!ok) setError(err || 'Mot de passe incorrect.');
     setLoading(false);
   }
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: 'var(--bg)',
-    }}>
-      <form
-        onSubmit={handleSubmit}
-        className="card"
-        style={{ width: '100%', maxWidth: 360 }}
-      >
-        <div style={{ marginBottom: 24, textAlign: 'center' }}>
-          <span className="logo" style={{ fontSize: 22 }}>ShoottimeTrie</span>
-          <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 8 }}>
-            Connexion requise
-          </p>
+    <div className="login-wrap">
+      <div className="login-box fadein">
+        <div className="login-logo">
+          <div className="login-logo-icon">S</div>
+          <div className="login-title">ShoottimeTrie</div>
+          <div className="login-sub">Connexion requise</div>
         </div>
 
-        <label style={{ display: 'block', marginBottom: 8, fontSize: 14, color: 'var(--text-muted)' }}>
-          Mot de passe
-        </label>
-        <input
-          type="password"
-          value={password}
-          onChange={e => setPassword(e.target.value)}
-          placeholder="••••••••"
-          autoFocus
-          autoComplete="current-password"
-        />
+        <form className="login-form" onSubmit={handleSubmit}>
+          <label className="label">Mot de passe</label>
+          <input
+            type="password"
+            className="input"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder="••••••••••"
+            autoFocus
+            autoComplete="current-password"
+          />
 
-        {error && (
-          <p style={{ color: 'var(--danger)', fontSize: 13, marginTop: 8 }}>{error}</p>
-        )}
+          {error && (
+            <div className="alert alert-error" style={{ marginTop: 12 }}>
+              <span>✕</span> {error}
+            </div>
+          )}
 
-        <button
-          type="submit"
-          className="btn btn-primary"
-          style={{ marginTop: 16, width: '100%' }}
-          disabled={loading || !password}
-        >
-          {loading ? 'Connexion...' : 'Se connecter'}
-        </button>
-      </form>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={loading || !password}
+            style={{ width: '100%', marginTop: 16, padding: '10px' }}
+          >
+            {loading && <div className="spinner spinner-dark spinner-sm" />}
+            {loading ? 'Vérification…' : 'Se connecter'}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

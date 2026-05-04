@@ -5,123 +5,99 @@ export default function WatermarkSettings() {
   const [preview, setPreview] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef();
 
   useEffect(() => {
-    apiFetch('/api/watermark')
-      .then(res => {
-        if (res.ok) setPreview('/api/watermark?' + Date.now());
-      })
-      .catch(() => {});
+    apiFetch('/api/watermark').then(res => {
+      if (res.ok) setPreview('/api/watermark?' + Date.now());
+    }).catch(() => {});
   }, []);
 
   async function handleFile(file) {
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setMessage({ type: 'error', text: 'Sélectionnez une image (PNG recommandé).' });
-      return;
-    }
-    setUploading(true);
-    setMessage(null);
-
+    if (!file.type.startsWith('image/')) { setMessage({ type: 'error', text: 'Sélectionnez une image (PNG recommandé).' }); return; }
+    setUploading(true); setMessage(null);
     const form = new FormData();
     form.append('file', file);
-
     try {
       const res = await apiFetch('/api/watermark', { method: 'POST', body: form });
-      if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.error || 'Erreur serveur');
-      }
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Erreur serveur'); }
       setPreview('/api/watermark?' + Date.now());
       setMessage({ type: 'success', text: 'Filigrane mis à jour.' });
-    } catch (err) {
-      setMessage({ type: 'error', text: err.message });
-    } finally {
-      setUploading(false);
-    }
+    } catch (err) { setMessage({ type: 'error', text: err.message }); }
+    finally { setUploading(false); }
   }
 
-  function onInputChange(e) {
-    handleFile(e.target.files[0]);
-    e.target.value = '';
-  }
-
-  function onDrop(e) {
-    e.preventDefault();
-    handleFile(e.dataTransfer.files[0]);
-  }
+  function onInputChange(e) { handleFile(e.target.files[0]); e.target.value = ''; }
+  function onDrop(e) { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0]); }
 
   return (
-    <div className="page" style={{ maxWidth: 600 }}>
-      <h1 className="page-title" style={{ marginBottom: 24 }}>Filigrane</h1>
+    <div className="page-sm fadein">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Filigrane</h1>
+          <p className="page-subtitle">Logo appliqué en bas à droite des photos (15% de la largeur)</p>
+        </div>
+      </div>
 
-      <div className="card" style={{ marginBottom: 24 }}>
-        <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>Filigrane actuel</h2>
+      {/* Aperçu */}
+      <div className="card" style={{ marginBottom: 12 }}>
+        <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 14 }}>Aperçu actuel</p>
         {preview ? (
           <div style={{
-            background: 'repeating-conic-gradient(#333 0% 25%, #222 0% 50%) 0 0 / 20px 20px',
-            borderRadius: 8,
-            padding: 24,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            minHeight: 160,
+            background: 'repeating-conic-gradient(#222 0% 25%, #1a1a1a 0% 50%) 0 0 / 16px 16px',
+            borderRadius: 8, padding: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 140,
           }}>
-            <img
-              src={preview}
-              alt="Filigrane"
-              style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'contain' }}
-            />
+            <img src={preview} alt="Filigrane" style={{ maxWidth: '100%', maxHeight: 180, objectFit: 'contain' }} />
           </div>
         ) : (
-          <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Aucun filigrane configuré.</p>
+          <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--dim)' }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>◈</div>
+            <p style={{ fontSize: 13 }}>Aucun filigrane configuré</p>
+          </div>
         )}
       </div>
 
+      {/* Upload */}
       <div className="card">
-        <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>Remplacer le filigrane</h2>
-        <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 16 }}>
-          PNG avec transparence recommandé. Taille max : 5 Mo. Le logo sera appliqué en bas à droite des photos (15% de la largeur).
+        <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 8 }}>
+          {preview ? 'Remplacer le filigrane' : 'Configurer le filigrane'}
         </p>
+        <p style={{ fontSize: 12, color: 'var(--dim)', marginBottom: 16 }}>PNG avec transparence recommandé — 5 Mo max</p>
 
         <div
-          style={{
-            border: '2px dashed var(--border)',
-            borderRadius: 8,
-            padding: 32,
-            textAlign: 'center',
-            cursor: 'pointer',
-            transition: 'border-color 0.2s',
-          }}
+          className={`dropzone${dragOver ? ' drag-over' : ''}`}
           onClick={() => inputRef.current?.click()}
-          onDragOver={e => e.preventDefault()}
+          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
           onDrop={onDrop}
         >
-          <div style={{ fontSize: 32, marginBottom: 8 }}>🖼</div>
-          <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 12 }}>
-            Glissez une image ici ou cliquez pour choisir
-          </p>
-          <button className="btn btn-primary" disabled={uploading}>
-            {uploading ? 'Upload...' : 'Choisir un fichier'}
-          </button>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*"
-            style={{ display: 'none' }}
-            onChange={onInputChange}
-          />
+          {uploading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+              <div className="spinner" />
+              <p style={{ fontSize: 13, color: 'var(--muted)' }}>Upload en cours…</p>
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: 28, color: 'var(--dim)', marginBottom: 8 }}>↑</div>
+              <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>Glissez une image ici</p>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={e => { e.stopPropagation(); inputRef.current?.click(); }}
+              >
+                Choisir un fichier
+              </button>
+            </>
+          )}
+          <input ref={inputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onInputChange} />
         </div>
 
         {message && (
-          <p style={{
-            marginTop: 16,
-            fontSize: 14,
-            color: message.type === 'error' ? 'var(--danger)' : 'var(--success)',
-          }}>
-            {message.type === 'success' ? '✓ ' : '✗ '}{message.text}
-          </p>
+          <div className={`alert ${message.type === 'error' ? 'alert-error' : 'alert-success'}`} style={{ marginTop: 12 }}>
+            <span>{message.type === 'error' ? '✕' : '✓'}</span> {message.text}
+          </div>
         )}
       </div>
     </div>
