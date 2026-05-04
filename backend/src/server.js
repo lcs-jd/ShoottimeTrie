@@ -11,6 +11,7 @@ import uploadRoutes from './routes/upload.js';
 import photosRoutes from './routes/photos.js';
 import sseRoutes from './routes/sse.js';
 import authRoutes from './routes/auth.js';
+import settingsRoutes from './routes/settings.js';
 
 // Démarrer les workers (import déclenche leur instanciation)
 import './workers/thumbnail.js';
@@ -64,6 +65,7 @@ await fastify.register(authRoutes);
 await fastify.register(uploadRoutes);
 await fastify.register(photosRoutes);
 await fastify.register(sseRoutes);
+await fastify.register(settingsRoutes);
 
 fastify.get('/health', async () => ({ ok: true }));
 

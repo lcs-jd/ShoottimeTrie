@@ -7,10 +7,13 @@ import { apiFetch } from '../lib/api.js';
 
 const BREAKPOINTS = { default: 4, 1280: 4, 1024: 3, 768: 2, 480: 1 };
 const FILTERS = [
-  { key: 'all',       label: 'Toutes'   },
-  { key: 'pending',   label: 'À trier'  },
-  { key: 'kept',      label: 'Gardées'  },
-  { key: 'discarded', label: 'Rejetées' },
+  { key: 'all',            label: 'Toutes'    },
+  { key: 'pending',        label: 'À trier'   },
+  { key: 'kept',           label: 'Gardées'   },
+  { key: 'discarded',      label: 'Rejetées'  },
+  { key: 'watermarked',    label: 'Filigrané' },
+  { key: 'published',      label: 'Publiées'  },
+  { key: 'facebook_error', label: 'Erreur FB' },
 ];
 
 export default function SortingGallery() {
@@ -64,9 +67,12 @@ export default function SortingGallery() {
           <h1 style={{ fontSize: 20, fontWeight: 600, color: 'var(--text)' }}>{session?.name || '…'}</h1>
           <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 12, color: 'var(--dim)', flexWrap: 'wrap' }}>
             <span>{photos.length} photos</span>
-            {counts.pending   > 0 && <span style={{ color: 'var(--muted)' }}>{counts.pending} à trier</span>}
-            {counts.kept      > 0 && <span style={{ color: 'var(--success)' }}>{counts.kept} gardées</span>}
-            {counts.discarded > 0 && <span style={{ color: 'var(--danger)' }}>{counts.discarded} rejetées</span>}
+            {counts.pending        > 0 && <span style={{ color: 'var(--muted)' }}>{counts.pending} à trier</span>}
+            {counts.kept           > 0 && <span style={{ color: 'var(--success)' }}>{counts.kept} gardées</span>}
+            {counts.discarded      > 0 && <span style={{ color: 'var(--danger)' }}>{counts.discarded} rejetées</span>}
+            {counts.watermarked    > 0 && <span style={{ color: 'var(--accent)' }}>{counts.watermarked} filigranées</span>}
+            {counts.published      > 0 && <span style={{ color: '#1877f2' }}>{counts.published} publiées</span>}
+            {counts.facebook_error > 0 && <span style={{ color: 'var(--danger)' }}>{counts.facebook_error} erreur FB</span>}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>

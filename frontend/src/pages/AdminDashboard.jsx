@@ -15,13 +15,21 @@ export default function AdminDashboard() {
   const [watermarkDone, setWatermarkDone] = useState(0);
   const [watermarkTarget, setWatermarkTarget] = useState(0);
   const [error, setError] = useState('');
+  const [fbStep, setFbStep] = useState(0); // 0=idle 1=redirect 2=choose 3=publishing 4=done
+  const [fbAlbums, setFbAlbums] = useState([]);
+  const [fbAlbumsLoading, setFbAlbumsLoading] = useState(false);
+  const [fbAlbumsError, setFbAlbumsError] = useState('');
+  const [fbSelectedAlbum, setFbSelectedAlbum] = useState(null);
   const [fbPublishing, setFbPublishing] = useState(false);
   const [fbDone, setFbDone] = useState(0);
   const [fbTotal, setFbTotal] = useState(0);
   const [fbError, setFbError] = useState('');
   const [fbAlbumId, setFbAlbumId] = useState(null);
-  const [fbAlbumName, setFbAlbumName] = useState('');
+  const [fbPhotoResults, setFbPhotoResults] = useState([]); // détail photos publiées/en erreur
+  const [fbStatusLoading, setFbStatusLoading] = useState(true);
+  const [fbPageUrl, setFbPageUrl] = useState('https://www.facebook.com/pages/manage');
   const fbDoneRef = useRef(0);
+  const fbTotalRef = useRef(0);
   const [showUpload, setShowUpload] = useState(false);
   const [duplicates, setDuplicates] = useState([]);
   const watermarkDoneRef = useRef(0);
@@ -32,6 +40,45 @@ export default function AdminDashboard() {
     apiFetch(`/api/sessions/${sessionId}/stats`).then(r => r.json()).then(setStats).catch(console.error);
   }
   useEffect(() => { loadStats(); }, [sessionId]);
+
+  useEffect(() => {
+    apiFetch('/api/settings').then(r => r.json()).then(data => {
+      if (data.facebook_page_url) setFbPageUrl(data.facebook_page_url);
+    }).catch(() => {});
+  }, []);
+
+  // Reconstitue l'état Facebook au montage (retour sur la page, rechargement)
+  useEffect(() => {
+    apiFetch(`/api/sessions/${sessionId}/facebook-status`)
+      .then(r => r.json())
+      .then(data => {
+        if (!data.album) { setFbStatusLoading(false); return; }
+
+        setFbAlbumId(data.album.album_id);
+        setFbSelectedAlbum({ id: data.album.album_id, name: data.album.album_name });
+        setFbPhotoResults(data.photos || []);
+
+        if (data.isPublishing) {
+          // Publication en cours côté serveur — on reprend la barre de progression
+          const done = data.published + data.errors;
+          fbDoneRef.current = done;
+          fbTotalRef.current = data.total;
+          setFbDone(done);
+          setFbTotal(data.total);
+          setFbPublishing(true);
+          setFbStep(3);
+        } else if (data.published > 0 || data.errors > 0) {
+          // Publication terminée (ou interrompue)
+          fbDoneRef.current = data.published + data.errors;
+          fbTotalRef.current = data.published + data.errors;
+          setFbDone(data.published + data.errors);
+          setFbTotal(data.published + data.errors);
+          setFbStep(4);
+        }
+        setFbStatusLoading(false);
+      })
+      .catch(() => setFbStatusLoading(false));
+  }, [sessionId]);
 
   useSSE(sessionId, useCallback((event) => {
     if (event.type === 'watermark_done') {
@@ -44,13 +91,20 @@ export default function AdminDashboard() {
       });
     } else if (event.type === 'facebook_progress') {
       fbDoneRef.current += 1;
+      fbTotalRef.current = event.total;
       setFbDone(fbDoneRef.current);
       setFbTotal(event.total);
-      if (fbDoneRef.current >= event.total) { setFbPublishing(false); loadStats(); }
+      setFbPhotoResults(prev => [...prev, { id: event.photoId, status: 'published' }]);
+      if (fbDoneRef.current >= event.total) {
+        setFbPublishing(false); setFbStep(4); loadStats();
+      }
     } else if (event.type === 'facebook_error') {
-      setFbError(`Erreur sur une photo : ${event.error}`);
       fbDoneRef.current += 1;
       setFbDone(fbDoneRef.current);
+      setFbPhotoResults(prev => [...prev, { id: event.photoId, status: 'facebook_error', error: event.error }]);
+      if (fbTotalRef.current > 0 && fbDoneRef.current >= fbTotalRef.current) {
+        setFbPublishing(false); setFbStep(4); loadStats();
+      }
     } else if (event.type === 'photo_sorted' || event.type === 'proxy_ready' || event.type === 'upload_done') {
       loadStats();
     }
@@ -97,20 +151,41 @@ export default function AdminDashboard() {
     };
   }, [showUpload, sessionId]);
 
+  async function loadFbAlbums() {
+    setFbAlbumsLoading(true); setFbAlbumsError(''); setFbSelectedAlbum(null);
+    try {
+      const res = await apiFetch('/api/facebook-albums');
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Erreur serveur'); }
+      const data = await res.json();
+      setFbAlbums(data.albums || []);
+      setFbStep(2);
+    } catch (err) {
+      setFbAlbumsError(err.message);
+    } finally {
+      setFbAlbumsLoading(false);
+    }
+  }
+
   async function publishToFacebook() {
+    if (!fbSelectedAlbum) return;
     setFbPublishing(true); setFbError(''); setFbAlbumId(null);
-    fbDoneRef.current = 0; setFbDone(0); setFbTotal(0);
+    fbDoneRef.current = 0; fbTotalRef.current = 0;
+    setFbDone(0); setFbTotal(0); setFbPhotoResults([]);
+    setFbStep(3);
     try {
       const res = await apiFetch(`/api/sessions/${sessionId}/publish-facebook`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ albumName: fbAlbumName || stats?.session?.name }),
+        body: JSON.stringify({ albumId: fbSelectedAlbum.id, albumName: fbSelectedAlbum.name }),
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Erreur serveur'); }
       const data = await res.json();
+      fbTotalRef.current = data.queued;
       setFbTotal(data.queued);
       setFbAlbumId(data.albumId);
-    } catch (err) { setFbError(err.message); setFbPublishing(false); }
+      // Cas dégénéré : 0 photos à publier
+      if (data.queued === 0) { setFbPublishing(false); setFbStep(4); }
+    } catch (err) { setFbError(err.message); setFbPublishing(false); setFbStep(2); }
   }
 
   async function startProcessing(reprocess = false) {
@@ -125,11 +200,13 @@ export default function AdminDashboard() {
   }
 
   const counts = stats?.counts || {};
-  const total       = Object.values(counts).reduce((a, b) => a + b, 0);
-  const kept        = counts.kept || 0;
-  const discarded   = counts.discarded || 0;
-  const pending     = counts.pending || 0;
-  const watermarked = counts.watermarked || 0;
+  const total        = Object.values(counts).reduce((a, b) => a + b, 0);
+  const kept         = counts.kept || 0;
+  const discarded    = counts.discarded || 0;
+  const pending      = counts.pending || 0;
+  const watermarked  = counts.watermarked || 0;
+  const published    = counts.published || 0;
+  const fbErrCount   = counts.facebook_error || 0;
   const progressPct = watermarkTarget > 0 ? Math.round((watermarkDone / watermarkTarget) * 100) : 0;
   const allDone     = processing && watermarkDone >= watermarkTarget && watermarkTarget > 0;
 
@@ -155,11 +232,13 @@ export default function AdminDashboard() {
       {/* Stats */}
       <div className="stats-grid">
         {[
-          { v: total,       l: 'Total',     c: 'var(--text)'    },
-          { v: pending,     l: 'À trier',   c: 'var(--muted)'   },
-          { v: kept,        l: 'Gardées',   c: 'var(--success)' },
-          { v: discarded,   l: 'Rejetées',  c: 'var(--danger)'  },
-          { v: watermarked, l: 'Filigrané', c: 'var(--accent)'  },
+          { v: total,       l: 'Total',      c: 'var(--text)'    },
+          { v: pending,     l: 'À trier',    c: 'var(--muted)'   },
+          { v: kept,        l: 'Gardées',    c: 'var(--success)' },
+          { v: discarded,   l: 'Rejetées',   c: 'var(--danger)'  },
+          { v: watermarked, l: 'Filigrané',  c: 'var(--accent)'  },
+          ...(published > 0  ? [{ v: published, l: 'Publiées ↗', c: '#1877f2' }] : []),
+          ...(fbErrCount    > 0 ? [{ v: fbErrCount,   l: 'Erreur FB',  c: 'var(--danger)' }] : []),
         ].map(({ v, l, c }) => (
           <div key={l} className="stat-card">
             <div className="stat-value" style={{ color: c }}>{v}</div>
@@ -248,67 +327,273 @@ export default function AdminDashboard() {
         )}
       </div>
 
-      {/* Téléchargement */}
-      {watermarked > 0 && (
+      {/* Téléchargement — disponible tant qu'il y a des photos filigranées (peu importe le statut FB) */}
+      {(watermarked + published + fbErrCount) > 0 && (
         <div className="card" style={{ marginBottom: 12 }}>
           <p style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>Téléchargement</p>
           <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
-            {watermarked} photo{watermarked > 1 ? 's' : ''} filigranée{watermarked > 1 ? 's' : ''} disponible{watermarked > 1 ? 's' : ''}
+            {watermarked + published + fbErrCount} photo{(watermarked + published + fbErrCount) > 1 ? 's' : ''} filigranée{(watermarked + published + fbErrCount) > 1 ? 's' : ''} disponible{(watermarked + published + fbErrCount) > 1 ? 's' : ''}
+            {published > 0 && <span style={{ color: '#1877f2', marginLeft: 6 }}>({published} déjà publiée{published > 1 ? 's' : ''})</span>}
           </p>
           <a href={`/api/sessions/${sessionId}/download`} download>
-            <button className="btn btn-success-outline">↓ Télécharger le ZIP ({watermarked} photos)</button>
+            <button className="btn btn-success-outline">↓ Télécharger le ZIP ({watermarked + published + fbErrCount} photos)</button>
           </a>
         </div>
       )}
 
-      {/* Publication Facebook */}
-      {watermarked > 0 && (
+      {/* Publication Facebook — stepper : visible si photos filigranées, en cours ou déjà publiées */}
+      {(watermarked > 0 || published > 0 || fbErrCount > 0 || fbStep > 0) && (
         <div className="card">
-          <p style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>Publication Facebook</p>
-          {!fbPublishing && fbDone === 0 ? (
+          {/* Titre + indicateur d'étape */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <p style={{ fontWeight: 600, color: 'var(--text)', margin: 0 }}>Publication Facebook</p>
+            {fbStep > 0 && fbStep < 4 && (
+              <span style={{ fontSize: 11, color: 'var(--dim)', background: 'var(--surface)', padding: '2px 8px', borderRadius: 99, border: '1px solid var(--border)' }}>
+                Étape {fbStep} / 3
+              </span>
+            )}
+          </div>
+
+          {/* ÉTAPE 0 — point d'entrée */}
+          {fbStep === 0 && (
+            fbStatusLoading ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 13 }}>
+                <div className="spinner" style={{ width: 14, height: 14 }} /> Vérification du statut…
+              </div>
+            ) : (
+              <>
+                <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
+                  Publie {watermarked} photo{watermarked > 1 ? 's' : ''} dans un album sur ta Page Facebook.
+                  L'album doit être créé manuellement depuis Facebook.
+                </p>
+                <button className="btn btn-primary" onClick={() => setFbStep(1)}>
+                  ↗ Publier sur Facebook
+                </button>
+              </>
+            )
+          )}
+
+          {/* ÉTAPE 1 — ouvrir Facebook pour créer l'album */}
+          {fbStep === 1 && (
             <>
+              <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+                {['Créer l\'album', 'Choisir l\'album', 'Publier'].map((label, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+                    <div style={{
+                      width: 22, height: 22, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, fontWeight: 700, flexShrink: 0,
+                      background: i === 0 ? 'var(--accent)' : 'var(--surface)',
+                      color: i === 0 ? '#fff' : 'var(--dim)',
+                      border: `1px solid ${i === 0 ? 'var(--accent)' : 'var(--border)'}`,
+                    }}>{i + 1}</div>
+                    <span style={{ fontSize: 12, color: i === 0 ? 'var(--text)' : 'var(--dim)', whiteSpace: 'nowrap' }}>{label}</span>
+                    {i < 2 && <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />}
+                  </div>
+                ))}
+              </div>
+
+              <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
+                1. Clique sur le bouton ci-dessous pour ouvrir ta Page Facebook dans un nouvel onglet.
+              </p>
               <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
-                Publie {watermarked} photo{watermarked > 1 ? 's' : ''} dans un album sur ta Page Facebook.
+                2. Crée un nouvel album photo vide depuis ta Page, puis reviens ici.
               </p>
-              <input
-                type="text"
-                className="input"
-                placeholder={`Nom de l'album (défaut : ${stats?.session?.name || '…'})`}
-                value={fbAlbumName}
-                onChange={e => setFbAlbumName(e.target.value)}
-                style={{ marginBottom: 12, width: '100%' }}
-              />
-              {fbError && <div className="alert alert-error" style={{ marginBottom: 12 }}><span>✕</span> {fbError}</div>}
-              <button className="btn btn-primary" onClick={publishToFacebook}>
-                ↗ Publier sur Facebook ({watermarked} photos)
-              </button>
-            </>
-          ) : fbPublishing ? (
-            <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 8 }}>
-                <span style={{ color: 'var(--muted)' }}>Publication en cours…</span>
-                <span style={{ color: 'var(--accent)', fontFamily: 'monospace', fontSize: 12 }}>{fbDone} / {fbTotal}</span>
-              </div>
-              <div className="progress-track" style={{ marginBottom: 12 }}>
-                <div className="progress-bar" style={{ width: fbTotal > 0 ? `${Math.round((fbDone / fbTotal) * 100)}%` : '0%' }} />
-              </div>
-              {fbError && <div className="alert alert-warning" style={{ marginBottom: 8 }}><span>⚠</span> {fbError}</div>}
-            </>
-          ) : (
-            <>
-              <p style={{ fontSize: 13, color: 'var(--success)', fontWeight: 500, marginBottom: 8 }}>
-                ✓ {fbDone} photo{fbDone > 1 ? 's' : ''} publiée{fbDone > 1 ? 's' : ''} sur Facebook
-              </p>
-              {fbAlbumId && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <a
-                  href={`https://www.facebook.com/media/set/?set=a.${fbAlbumId}`}
+                  href={fbPageUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  <button className="btn btn-ghost btn-sm">Voir l'album →</button>
+                  <button className="btn btn-primary">↗ Ouvrir ma Page Facebook</button>
                 </a>
+                <button
+                  className="btn btn-ghost"
+                  onClick={loadFbAlbums}
+                  disabled={fbAlbumsLoading}
+                >
+                  {fbAlbumsLoading ? 'Chargement…' : 'J\'ai créé l\'album →'}
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setFbStep(0)} style={{ marginLeft: 'auto' }}>
+                  Annuler
+                </button>
+              </div>
+              {fbAlbumsError && (
+                <div className="alert alert-error" style={{ marginTop: 12 }}>
+                  <span>✕</span> {fbAlbumsError}
+                </div>
               )}
-              {fbError && <div className="alert alert-warning" style={{ marginTop: 8 }}><span>⚠</span> {fbError}</div>}
+            </>
+          )}
+
+          {/* ÉTAPE 2 — choisir l'album */}
+          {fbStep === 2 && (
+            <>
+              <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+                {['Créer l\'album', 'Choisir l\'album', 'Publier'].map((label, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+                    <div style={{
+                      width: 22, height: 22, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, fontWeight: 700, flexShrink: 0,
+                      background: i === 1 ? 'var(--accent)' : i < 1 ? 'var(--success)' : 'var(--surface)',
+                      color: i <= 1 ? '#fff' : 'var(--dim)',
+                      border: `1px solid ${i === 1 ? 'var(--accent)' : i < 1 ? 'var(--success)' : 'var(--border)'}`,
+                    }}>{i < 1 ? '✓' : i + 1}</div>
+                    <span style={{ fontSize: 12, color: i <= 1 ? 'var(--text)' : 'var(--dim)', whiteSpace: 'nowrap' }}>{label}</span>
+                    {i < 2 && <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />}
+                  </div>
+                ))}
+              </div>
+
+              <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
+                Sélectionne l'album dans lequel publier les {watermarked} photos. Les albums avec des photos existantes sont affichés en grisé.
+              </p>
+
+              {fbAlbums.length === 0 ? (
+                <div className="alert alert-warning" style={{ marginBottom: 12 }}>
+                  <span>⚠</span> Aucun album trouvé sur ta Page. Crée-en un depuis Facebook d'abord.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14, maxHeight: 240, overflowY: 'auto' }}>
+                  {fbAlbums.map(album => {
+                    const isEmpty = (album.count || 0) === 0;
+                    const selected = fbSelectedAlbum?.id === album.id;
+                    return (
+                      <button
+                        key={album.id}
+                        onClick={() => isEmpty && setFbSelectedAlbum(album)}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          padding: '10px 14px', borderRadius: 8, textAlign: 'left', cursor: isEmpty ? 'pointer' : 'not-allowed',
+                          border: `2px solid ${selected ? 'var(--accent)' : 'var(--border)'}`,
+                          background: selected ? 'rgba(var(--accent-rgb, 99,102,241),.08)' : isEmpty ? 'var(--surface)' : 'var(--bg)',
+                          opacity: isEmpty ? 1 : 0.45,
+                          transition: 'border-color .15s, background .15s',
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: selected ? 600 : 400, color: 'var(--text)', fontSize: 14 }}>{album.name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--dim)', marginTop: 2 }}>
+                            {isEmpty ? 'Vide — prêt à recevoir les photos' : `${album.count} photo${album.count > 1 ? 's' : ''} existante${album.count > 1 ? 's' : ''}`}
+                          </div>
+                        </div>
+                        {selected && <span style={{ color: 'var(--accent)', fontSize: 18 }}>✓</span>}
+                        {!isEmpty && <span style={{ fontSize: 11, color: 'var(--dim)' }}>non vide</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button
+                  className="btn btn-primary"
+                  onClick={publishToFacebook}
+                  disabled={!fbSelectedAlbum}
+                >
+                  ↗ Publier dans « {fbSelectedAlbum?.name || '…'} »
+                </button>
+                <button className="btn btn-ghost" onClick={loadFbAlbums} disabled={fbAlbumsLoading}>
+                  {fbAlbumsLoading ? 'Actualisation…' : '↺ Actualiser la liste'}
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setFbStep(1)} style={{ marginLeft: 'auto' }}>
+                  ← Retour
+                </button>
+              </div>
+              {fbError && <div className="alert alert-error" style={{ marginTop: 12 }}><span>✕</span> {fbError}</div>}
+            </>
+          )}
+
+          {/* ÉTAPES 3 & 4 — publication en cours ou terminée */}
+          {(fbStep === 3 || fbStep === 4) && (
+            <>
+              {/* En-tête statut */}
+              <div style={{ marginBottom: 14 }}>
+                {fbStep === 3 ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div className="spinner" style={{ width: 14, height: 14, flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+                      Publication dans « {fbSelectedAlbum?.name} »…
+                    </span>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: fbPhotoResults.some(p => p.status === 'facebook_error') ? 'var(--warning, #f59e0b)' : 'var(--success)' }}>
+                      {fbPhotoResults.some(p => p.status === 'facebook_error')
+                        ? `⚠ Terminé avec erreurs — ${fbPhotoResults.filter(p => p.status === 'published').length} publiée(s), ${fbPhotoResults.filter(p => p.status === 'facebook_error').length} en erreur`
+                        : `✓ ${fbPhotoResults.filter(p => p.status === 'published').length} photo${fbPhotoResults.filter(p => p.status === 'published').length > 1 ? 's' : ''} publiée${fbPhotoResults.filter(p => p.status === 'published').length > 1 ? 's' : ''}`
+                      }
+                    </span>
+                    {fbAlbumId && (
+                      <a href={`https://www.facebook.com/media/set/?set=a.${fbAlbumId}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>
+                        Voir l'album ↗
+                      </a>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Barre de progression */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--dim)', marginBottom: 6 }}>
+                <span>{fbStep === 3 ? 'Envoi en cours…' : 'Terminé'}</span>
+                <span style={{ fontFamily: 'monospace' }}>{fbDone} / {fbTotal}</span>
+              </div>
+              <div className="progress-track" style={{ marginBottom: 14 }}>
+                <div
+                  className={`progress-bar${fbStep === 4 ? ' done' : ''}`}
+                  style={{ width: fbTotal > 0 ? `${Math.round((fbDone / fbTotal) * 100)}%` : '0%' }}
+                />
+              </div>
+
+              {/* Liste des photos en erreur */}
+              {fbPhotoResults.filter(p => p.status === 'facebook_error').length > 0 && (
+                <details style={{ marginBottom: 12 }}>
+                  <summary style={{ fontSize: 12, color: 'var(--danger)', cursor: 'pointer', userSelect: 'none' }}>
+                    ✕ {fbPhotoResults.filter(p => p.status === 'facebook_error').length} photo{fbPhotoResults.filter(p => p.status === 'facebook_error').length > 1 ? 's' : ''} en erreur
+                  </summary>
+                  <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 160, overflowY: 'auto' }}>
+                    {fbPhotoResults.filter(p => p.status === 'facebook_error').map(p => (
+                      <div key={p.id} style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--danger)', background: 'rgba(239,68,68,.08)', padding: '4px 8px', borderRadius: 4 }}>
+                        {p.filename || p.id}{p.error ? ` — ${p.error}` : ''}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+
+              {/* Liste des photos publiées */}
+              {fbStep === 4 && fbPhotoResults.filter(p => p.status === 'published').length > 0 && (
+                <details style={{ marginBottom: 12 }}>
+                  <summary style={{ fontSize: 12, color: 'var(--success)', cursor: 'pointer', userSelect: 'none' }}>
+                    ✓ {fbPhotoResults.filter(p => p.status === 'published').length} photo{fbPhotoResults.filter(p => p.status === 'published').length > 1 ? 's' : ''} publiée{fbPhotoResults.filter(p => p.status === 'published').length > 1 ? 's' : ''}
+                  </summary>
+                  <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: 200, overflowY: 'auto' }}>
+                    {fbPhotoResults.filter(p => p.status === 'published').map(p => (
+                      p.proxy_path ? (
+                        <img
+                          key={p.id}
+                          src={`/media/${p.proxy_path}`}
+                          title={p.filename || p.id}
+                          style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 4, border: '1px solid var(--border)' }}
+                        />
+                      ) : (
+                        <div key={p.id} style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--dim)', background: 'var(--surface)', padding: '3px 7px', borderRadius: 4 }}>
+                          {p.filename || p.id}
+                        </div>
+                      )
+                    ))}
+                  </div>
+                </details>
+              )}
+
+              {/* Actions fin */}
+              {fbStep === 4 && (
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => { setFbStep(0); setFbSelectedAlbum(null); setFbAlbums([]); fbDoneRef.current = 0; fbTotalRef.current = 0; setFbDone(0); setFbTotal(0); setFbError(''); setFbAlbumId(null); setFbPhotoResults([]); }}
+                >
+                  Republier dans un autre album
+                </button>
+              )}
             </>
           )}
         </div>

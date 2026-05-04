@@ -1,10 +1,12 @@
 import { useState } from 'react';
 
 const STATUS = {
-  pending:     { label: 'À trier',   color: 'var(--muted)',   border: 'rgba(255,255,255,0.08)' },
-  kept:        { label: 'Gardée',    color: 'var(--success)', border: 'rgba(34,197,94,0.45)'   },
-  discarded:   { label: 'Rejetée',   color: 'var(--danger)',  border: 'rgba(239,68,68,0.35)'   },
-  watermarked: { label: 'Filigrané', color: 'var(--accent)',  border: 'rgba(245,158,11,0.45)'  },
+  pending:        { label: 'À trier',   color: 'var(--muted)',                border: 'rgba(255,255,255,0.08)' },
+  kept:           { label: 'Gardée',    color: 'var(--success)',               border: 'rgba(34,197,94,0.45)'   },
+  discarded:      { label: 'Rejetée',   color: 'var(--danger)',                border: 'rgba(239,68,68,0.35)'   },
+  watermarked:    { label: 'Filigrané', color: 'var(--accent)',                border: 'rgba(245,158,11,0.45)'  },
+  published:      { label: 'Publié ↗',  color: '#1877f2',                      border: 'rgba(24,119,242,0.45)'  },
+  facebook_error: { label: 'Erreur FB', color: 'var(--danger)',                border: 'rgba(239,68,68,0.35)'   },
 };
 
 export default function PhotoCard({ photo, onKeep, onDiscard }) {
@@ -13,6 +15,9 @@ export default function PhotoCard({ photo, onKeep, onDiscard }) {
   const isKept        = photo.status === 'kept';
   const isDiscarded   = photo.status === 'discarded';
   const isWatermarked = photo.status === 'watermarked';
+  const isPublished   = photo.status === 'published';
+  const isFbError     = photo.status === 'facebook_error';
+  const isFinal       = isWatermarked || isPublished || isFbError;
   const s = STATUS[photo.status] || STATUS.pending;
 
   async function handle(action) {
@@ -36,7 +41,7 @@ export default function PhotoCard({ photo, onKeep, onDiscard }) {
         {s.label}
       </div>
 
-      {!isWatermarked && (
+      {!isFinal && (
         <div className="photo-actions">
           <button
             className={`photo-btn photo-btn-keep${isKept ? ' active' : ''}`}

@@ -4,7 +4,7 @@ import AdminUpload from './pages/AdminUpload.jsx';
 import SortingGallery from './pages/SortingGallery.jsx';
 import AdminDashboard from './pages/AdminDashboard.jsx';
 import Home from './pages/Home.jsx';
-import WatermarkSettings from './pages/WatermarkSettings.jsx';
+import Settings from './pages/Settings.jsx';
 import Login from './pages/Login.jsx';
 import PrivacyPolicy from './pages/PrivacyPolicy.jsx';
 
@@ -41,9 +41,9 @@ function AppShell() {
             <span className="nav-link-icon">↑</span>
             <span className="nav-link-label">Upload</span>
           </NavLink>
-          <NavLink to="/watermark" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
-            <span className="nav-link-icon">◈</span>
-            <span className="nav-link-label">Filigrane</span>
+          <NavLink to="/settings" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
+            <span className="nav-link-icon">⚙</span>
+            <span className="nav-link-label">Paramètres</span>
           </NavLink>
         </div>
 
@@ -58,7 +58,8 @@ function AppShell() {
         <Route path="/upload" element={<AdminUpload />} />
         <Route path="/sort/:sessionId" element={<SortingGallery />} />
         <Route path="/dashboard/:sessionId" element={<AdminDashboard />} />
-        <Route path="/watermark" element={<WatermarkSettings />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/watermark" element={<Navigate to="/settings" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>

@@ -39,8 +39,14 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_photos_status ON photos(status);
 `);
 
-// Migration : ajout des colonnes si la base existait avant cette version
-try { db.exec("ALTER TABLE photos ADD COLUMN facebook_photo_id TEXT"); } catch {}
+db.exec(`
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+`);
 
+// Migrations
+try { db.exec("ALTER TABLE photos ADD COLUMN facebook_photo_id TEXT"); } catch {}
 
 export default db;
