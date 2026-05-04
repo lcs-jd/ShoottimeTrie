@@ -1,0 +1,11 @@
+node_modules/
+backend/data/
+frontend/dist/
+*.db
+*.db-wal
+*.db-shm
+.env
+watermark/*
+!watermark/.gitkeep
+.claude/
+.vscode/

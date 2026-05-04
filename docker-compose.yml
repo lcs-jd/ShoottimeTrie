@@ -1,0 +1,45 @@
+version: '3.9'
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "3000"
+      REDIS_URL: "redis://redis:6379"
+      DATA_DIR: "/data"
+      WATERMARK_LOGO_PATH: "/watermark/logo.png"
+      CORS_ORIGIN: "http://localhost"
+    volumes:
+      - photos_data:/data
+      - ./watermark:/watermark:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+
+volumes:
+  redis_data:
+  photos_data:

@@ -1,0 +1,36 @@
+import { Worker } from 'bullmq';
+import sharp from 'sharp';
+import path from 'path';
+import fs from 'fs';
+import { connection } from './queue.js';
+import db from '../db.js';
+import { broadcast } from '../routes/sse.js';
+
+const DATA_DIR = path.resolve(process.env.DATA_DIR || './data');
+const PROXIES_DIR = path.join(DATA_DIR, 'proxies');
+
+fs.mkdirSync(PROXIES_DIR, { recursive: true });
+
+export const thumbnailWorker = new Worker('thumbnail', async (job) => {
+  const { photoId, originalPath, sessionId } = job.data;
+
+  const proxyFilename = `${photoId}.webp`;
+  const proxyPath = path.join(PROXIES_DIR, proxyFilename);
+
+  await sharp(originalPath)
+    .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
+    .webp({ quality: 75 })
+    .toFile(proxyPath);
+
+  db.prepare('UPDATE photos SET proxy_path = ?, status = ? WHERE id = ?')
+    .run(`proxies/${proxyFilename}`, 'pending', photoId);
+
+  broadcast(sessionId, { type: 'proxy_ready', photoId });
+}, {
+  connection,
+  concurrency: 2,
+});
+
+thumbnailWorker.on('failed', (job, err) => {
+  console.error(`[thumbnail] job ${job?.id} failed:`, err.message);
+});
