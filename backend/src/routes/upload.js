@@ -1,7 +1,6 @@
 import { randomUUID } from 'crypto';
 import path from 'path';
 import fs from 'fs';
-import { execSync } from 'child_process';
 import { pipeline } from 'stream/promises';
 import db from '../db.js';
 import { thumbnailQueue } from '../workers/queue.js';
@@ -15,11 +14,11 @@ fs.mkdirSync(ORIGINALS_DIR, { recursive: true });
 export default async function uploadRoutes(fastify) {
   fastify.get('/api/disk', async (req, reply) => {
     try {
-      const out = execSync(`df -B1 "${DATA_DIR}"`).toString().trim().split('\n');
-      const parts = out[1].trim().split(/\s+/);
-      const total = parseInt(parts[1], 10);
-      const used  = parseInt(parts[2], 10);
-      const free  = parseInt(parts[3], 10);
+      // statfs fonctionne avec n'importe quel chemin dans le volume, même sans être un point de montage
+      const stat  = fs.statfsSync(DATA_DIR);
+      const total = stat.blocks      * stat.bsize;
+      const free  = stat.bfree       * stat.bsize;
+      const used  = total - free;
       return { total, used, free };
     } catch {
       return reply.code(500).send({ error: 'Impossible de lire le disque.' });
