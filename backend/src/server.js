@@ -15,6 +15,7 @@ import authRoutes from './routes/auth.js';
 // Démarrer les workers (import déclenche leur instanciation)
 import './workers/thumbnail.js';
 import './workers/watermark.js';
+import './workers/facebook.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, '..', 'data'));

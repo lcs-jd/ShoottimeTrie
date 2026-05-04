@@ -15,6 +15,13 @@ export default function AdminDashboard() {
   const [watermarkDone, setWatermarkDone] = useState(0);
   const [watermarkTarget, setWatermarkTarget] = useState(0);
   const [error, setError] = useState('');
+  const [fbPublishing, setFbPublishing] = useState(false);
+  const [fbDone, setFbDone] = useState(0);
+  const [fbTotal, setFbTotal] = useState(0);
+  const [fbError, setFbError] = useState('');
+  const [fbAlbumId, setFbAlbumId] = useState(null);
+  const [fbAlbumName, setFbAlbumName] = useState('');
+  const fbDoneRef = useRef(0);
   const [showUpload, setShowUpload] = useState(false);
   const [duplicates, setDuplicates] = useState([]);
   const watermarkDoneRef = useRef(0);
@@ -35,6 +42,15 @@ export default function AdminDashboard() {
         if (watermarkDoneRef.current >= prev && prev > 0) setProcessing(false);
         return prev;
       });
+    } else if (event.type === 'facebook_progress') {
+      fbDoneRef.current += 1;
+      setFbDone(fbDoneRef.current);
+      setFbTotal(event.total);
+      if (fbDoneRef.current >= event.total) { setFbPublishing(false); loadStats(); }
+    } else if (event.type === 'facebook_error') {
+      setFbError(`Erreur sur une photo : ${event.error}`);
+      fbDoneRef.current += 1;
+      setFbDone(fbDoneRef.current);
     } else if (event.type === 'photo_sorted' || event.type === 'proxy_ready' || event.type === 'upload_done') {
       loadStats();
     }
@@ -80,6 +96,22 @@ export default function AdminDashboard() {
       uppyRef.current = null;
     };
   }, [showUpload, sessionId]);
+
+  async function publishToFacebook() {
+    setFbPublishing(true); setFbError(''); setFbAlbumId(null);
+    fbDoneRef.current = 0; setFbDone(0); setFbTotal(0);
+    try {
+      const res = await apiFetch(`/api/sessions/${sessionId}/publish-facebook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ albumName: fbAlbumName || stats?.session?.name }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Erreur serveur'); }
+      const data = await res.json();
+      setFbTotal(data.queued);
+      setFbAlbumId(data.albumId);
+    } catch (err) { setFbError(err.message); setFbPublishing(false); }
+  }
 
   async function startProcessing(reprocess = false) {
     setProcessing(true); setError('');
@@ -218,7 +250,7 @@ export default function AdminDashboard() {
 
       {/* Téléchargement */}
       {watermarked > 0 && (
-        <div className="card">
+        <div className="card" style={{ marginBottom: 12 }}>
           <p style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>Téléchargement</p>
           <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
             {watermarked} photo{watermarked > 1 ? 's' : ''} filigranée{watermarked > 1 ? 's' : ''} disponible{watermarked > 1 ? 's' : ''}
@@ -226,6 +258,59 @@ export default function AdminDashboard() {
           <a href={`/api/sessions/${sessionId}/download`} download>
             <button className="btn btn-success-outline">↓ Télécharger le ZIP ({watermarked} photos)</button>
           </a>
+        </div>
+      )}
+
+      {/* Publication Facebook */}
+      {watermarked > 0 && (
+        <div className="card">
+          <p style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>Publication Facebook</p>
+          {!fbPublishing && fbDone === 0 ? (
+            <>
+              <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
+                Publie {watermarked} photo{watermarked > 1 ? 's' : ''} dans un album sur ta Page Facebook.
+              </p>
+              <input
+                type="text"
+                className="input"
+                placeholder={`Nom de l'album (défaut : ${stats?.session?.name || '…'})`}
+                value={fbAlbumName}
+                onChange={e => setFbAlbumName(e.target.value)}
+                style={{ marginBottom: 12, width: '100%' }}
+              />
+              {fbError && <div className="alert alert-error" style={{ marginBottom: 12 }}><span>✕</span> {fbError}</div>}
+              <button className="btn btn-primary" onClick={publishToFacebook}>
+                ↗ Publier sur Facebook ({watermarked} photos)
+              </button>
+            </>
+          ) : fbPublishing ? (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 8 }}>
+                <span style={{ color: 'var(--muted)' }}>Publication en cours…</span>
+                <span style={{ color: 'var(--accent)', fontFamily: 'monospace', fontSize: 12 }}>{fbDone} / {fbTotal}</span>
+              </div>
+              <div className="progress-track" style={{ marginBottom: 12 }}>
+                <div className="progress-bar" style={{ width: fbTotal > 0 ? `${Math.round((fbDone / fbTotal) * 100)}%` : '0%' }} />
+              </div>
+              {fbError && <div className="alert alert-warning" style={{ marginBottom: 8 }}><span>⚠</span> {fbError}</div>}
+            </>
+          ) : (
+            <>
+              <p style={{ fontSize: 13, color: 'var(--success)', fontWeight: 500, marginBottom: 8 }}>
+                ✓ {fbDone} photo{fbDone > 1 ? 's' : ''} publiée{fbDone > 1 ? 's' : ''} sur Facebook
+              </p>
+              {fbAlbumId && (
+                <a
+                  href={`https://www.facebook.com/media/set/?set=a.${fbAlbumId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <button className="btn btn-ghost btn-sm">Voir l'album →</button>
+                </a>
+              )}
+              {fbError && <div className="alert alert-warning" style={{ marginTop: 8 }}><span>⚠</span> {fbError}</div>}
+            </>
+          )}
         </div>
       )}
     </div>

@@ -6,6 +6,7 @@ import AdminDashboard from './pages/AdminDashboard.jsx';
 import Home from './pages/Home.jsx';
 import WatermarkSettings from './pages/WatermarkSettings.jsx';
 import Login from './pages/Login.jsx';
+import PrivacyPolicy from './pages/PrivacyPolicy.jsx';
 
 function AppShell() {
   const { authenticated, logout } = useAuth();
@@ -68,7 +69,10 @@ export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <AppShell />
+        <Routes>
+          <Route path="/privacy" element={<PrivacyPolicy />} />
+          <Route path="*" element={<AppShell />} />
+        </Routes>
       </BrowserRouter>
     </AuthProvider>
   );

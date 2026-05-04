@@ -22,12 +22,25 @@ db.exec(`
     original_path TEXT NOT NULL,
     proxy_path TEXT,
     watermarked_path TEXT,
+    facebook_photo_id TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+
+  CREATE TABLE IF NOT EXISTS facebook_albums (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    album_id TEXT NOT NULL,
+    album_name TEXT NOT NULL,
     created_at INTEGER NOT NULL DEFAULT (unixepoch())
   );
 
   CREATE INDEX IF NOT EXISTS idx_photos_session ON photos(session_id);
   CREATE INDEX IF NOT EXISTS idx_photos_status ON photos(status);
 `);
+
+// Migration : ajout des colonnes si la base existait avant cette version
+try { db.exec("ALTER TABLE photos ADD COLUMN facebook_photo_id TEXT"); } catch {}
+
 
 export default db;

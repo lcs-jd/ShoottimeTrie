@@ -1,9 +1,10 @@
 import path from 'path';
 import fs from 'fs';
 import { pipeline } from 'stream/promises';
+import { randomUUID } from 'crypto';
 import archiver from 'archiver';
 import db from '../db.js';
-import { watermarkQueue } from '../workers/queue.js';
+import { watermarkQueue, facebookQueue } from '../workers/queue.js';
 import { broadcast } from './sse.js';
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || './data');
@@ -161,6 +162,77 @@ export default async function photosRoutes(fastify) {
     reply.header('Content-Type', 'image/png');
     reply.header('Cache-Control', 'no-cache');
     return reply.send(fs.createReadStream(WATERMARK_PATH));
+  });
+
+  // Créer un album Facebook et publier les photos filigranées
+  fastify.post('/api/sessions/:sessionId/publish-facebook', async (req, reply) => {
+    const { sessionId } = req.params;
+    const { albumName } = req.body || {};
+
+    if (!process.env.FACEBOOK_PAGE_ID || !process.env.FACEBOOK_PAGE_ACCESS_TOKEN) {
+      return reply.code(503).send({ error: 'Publication Facebook non configurée (variables d\'environnement manquantes).' });
+    }
+
+    const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
+    if (!session) return reply.code(404).send({ error: 'session not found' });
+
+    const photos = db.prepare(
+      "SELECT * FROM photos WHERE session_id = ? AND status = 'watermarked'"
+    ).all(sessionId);
+
+    if (photos.length === 0) {
+      return reply.code(400).send({ error: 'Aucune photo filigranée à publier.' });
+    }
+
+    const name = albumName || session.name;
+    const PAGE_ID = process.env.FACEBOOK_PAGE_ID;
+    const ACCESS_TOKEN = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
+
+    // Créer l'album sur la Page
+    const albumRes = await fetch(`https://graph.facebook.com/v19.0/${PAGE_ID}/albums`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, access_token: ACCESS_TOKEN }),
+    });
+    const albumData = await albumRes.json();
+    if (!albumRes.ok || albumData.error) {
+      return reply.code(502).send({ error: albumData.error?.message || 'Erreur création album Facebook' });
+    }
+
+    const albumId = albumData.id;
+    db.prepare('INSERT INTO facebook_albums (id, session_id, album_id, album_name) VALUES (?, ?, ?, ?)')
+      .run(randomUUID(), sessionId, albumId, name);
+
+    for (let i = 0; i < photos.length; i++) {
+      await facebookQueue.add('upload', {
+        photoId: photos[i].id,
+        watermarkedPath: photos[i].watermarked_path,
+        albumId,
+        sessionId,
+        index: i,
+        total: photos.length,
+      });
+    }
+
+    db.prepare("UPDATE sessions SET status = 'publishing' WHERE id = ?").run(sessionId);
+    return { queued: photos.length, albumId };
+  });
+
+  // Statut de publication Facebook pour une session
+  fastify.get('/api/sessions/:sessionId/facebook-status', async (req, reply) => {
+    const { sessionId } = req.params;
+    const album = db.prepare(
+      'SELECT * FROM facebook_albums WHERE session_id = ? ORDER BY created_at DESC LIMIT 1'
+    ).get(sessionId);
+
+    const counts = db.prepare(`
+      SELECT status, COUNT(*) as count FROM photos
+      WHERE session_id = ? AND status IN ('published', 'facebook_error', 'watermarked')
+      GROUP BY status
+    `).all(sessionId);
+
+    const byStatus = Object.fromEntries(counts.map(r => [r.status, r.count]));
+    return { album: album || null, published: byStatus.published || 0, errors: byStatus.facebook_error || 0, remaining: byStatus.watermarked || 0 };
   });
 
   fastify.post('/api/watermark', async (req, reply) => {

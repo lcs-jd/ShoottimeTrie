@@ -7,5 +7,6 @@ const connection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379'
 
 export const thumbnailQueue = new Queue('thumbnail', { connection });
 export const watermarkQueue = new Queue('watermark', { connection });
+export const facebookQueue = new Queue('facebook', { connection });
 
 export { connection };
