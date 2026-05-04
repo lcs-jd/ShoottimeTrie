@@ -27,7 +27,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-changeme-jwt-secret-32chars-min!!}
     volumes:
       - photos_data:/data
-      - ./watermark:/watermark:ro
+      - ./watermark:/watermark
     depends_on:
       redis:
         condition: service_healthy
