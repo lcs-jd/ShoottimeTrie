@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import path from 'path';
 import fs from 'fs';
+import { execSync } from 'child_process';
 import { pipeline } from 'stream/promises';
 import db from '../db.js';
 import { thumbnailQueue } from '../workers/queue.js';
@@ -12,6 +13,18 @@ const ORIGINALS_DIR = path.join(DATA_DIR, 'originals');
 fs.mkdirSync(ORIGINALS_DIR, { recursive: true });
 
 export default async function uploadRoutes(fastify) {
+  fastify.get('/api/disk', async (req, reply) => {
+    try {
+      const out = execSync(`df -B1 "${DATA_DIR}"`).toString().trim().split('\n');
+      const parts = out[1].trim().split(/\s+/);
+      const total = parseInt(parts[1], 10);
+      const used  = parseInt(parts[2], 10);
+      const free  = parseInt(parts[3], 10);
+      return { total, used, free };
+    } catch {
+      return reply.code(500).send({ error: 'Impossible de lire le disque.' });
+    }
+  });
   fastify.post('/api/sessions', async (req, reply) => {
     const { name } = req.body || {};
     if (!name?.trim()) return reply.code(400).send({ error: 'name required' });
