@@ -23,6 +23,8 @@ services:
       DATA_DIR: "/data"
       WATERMARK_LOGO_PATH: "/watermark/logo.png"
       CORS_ORIGIN: "http://localhost"
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
+      JWT_SECRET: ${JWT_SECRET:-changeme-jwt-secret-32chars-min!!}
     volumes:
       - photos_data:/data
       - ./watermark:/watermark:ro
