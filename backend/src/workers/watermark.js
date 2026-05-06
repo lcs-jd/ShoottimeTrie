@@ -75,7 +75,7 @@ export const watermarkWorker = new Worker('watermark', async (job) => {
 
   await sharp(originalPath)
     .composite(compositeOptions)
-    .jpeg({ quality: 90, mozjpeg: true })
+    .jpeg({ quality: 100, mozjpeg: false })
     .toFile(outPath);
 
   db.prepare('UPDATE photos SET watermarked_path = ?, status = ? WHERE id = ?')
