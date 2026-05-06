@@ -29,7 +29,7 @@ function AppShell() {
       <nav className="nav">
         <NavLink to="/" className="nav-logo">
           <div className="nav-logo-icon">S</div>
-          <span className="nav-logo-text">ShoottimeTrie</span>
+          <span className="nav-logo-text">ShoottimeTri</span>
         </NavLink>
 
         <div className="nav-links">

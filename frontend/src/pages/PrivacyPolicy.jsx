@@ -2,11 +2,11 @@ export default function PrivacyPolicy() {
   return (
     <div style={{ maxWidth: 680, margin: '60px auto', padding: '0 24px', fontFamily: 'system-ui, sans-serif', color: '#1a1a1a', lineHeight: 1.7 }}>
       <h1 style={{ fontSize: 26, fontWeight: 700, marginBottom: 8 }}>Politique de confidentialité</h1>
-      <p style={{ fontSize: 13, color: '#888', marginBottom: 32 }}>ShoottimeTrie — Application de tri et publication de photos</p>
+      <p style={{ fontSize: 13, color: '#888', marginBottom: 32 }}>ShoottimeTri — Application de tri et publication de photos</p>
 
       <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Objet de l'application</h2>
       <p style={{ marginBottom: 24 }}>
-        ShoottimeTrie est une application développée à des fins d'intégration backend interne exclusive.
+        ShoottimeTri est une application développée à des fins d'intégration backend interne exclusive.
         Elle permet à un administrateur de trier des lots de photos et de les publier sur une Page Facebook via l'API Graph de Meta.
       </p>
 

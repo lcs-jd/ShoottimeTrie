@@ -314,7 +314,7 @@ async function test11_feed_post() {
   sep('TEST 11 — Post texte simple sur la Page (POST /{page}/feed)');
   // Test encore plus basique — si même ça échoue, problème de capacité app profond
   const { ok, data } = await fbPost(`${PAGE_ID}/feed`, {
-    message: 'Test debug Shoottimetrie — ce post peut être supprimé',
+    message: 'Test debug Shoottimetri — ce post peut être supprimé',
     published: false,
   });
 

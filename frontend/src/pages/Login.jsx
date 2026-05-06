@@ -21,7 +21,7 @@ export default function Login() {
       <div className="login-box fadein">
         <div className="login-logo">
           <div className="login-logo-icon">S</div>
-          <div className="login-title">ShoottimeTrie</div>
+          <div className="login-title">ShoottimeTri</div>
           <div className="login-sub">Connexion requise</div>
         </div>
 
