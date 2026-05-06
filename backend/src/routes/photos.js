@@ -1,6 +1,5 @@
 import path from 'path';
 import fs from 'fs';
-import { pipeline } from 'stream/promises';
 import { randomUUID } from 'crypto';
 import archiver from 'archiver';
 import db from '../db.js';
@@ -8,9 +7,6 @@ import { watermarkQueue, facebookQueue } from '../workers/queue.js';
 import { broadcast } from './sse.js';
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || './data');
-const WATERMARK_DIR = path.resolve(process.env.WATERMARK_DIR || path.join(DATA_DIR, '..', 'watermark'));
-const WATERMARK_PATH = path.join(WATERMARK_DIR, 'logo.png');
-fs.mkdirSync(WATERMARK_DIR, { recursive: true });
 
 export default async function photosRoutes(fastify) {
   fastify.get('/api/sessions/:sessionId/photos', async (req, reply) => {
@@ -155,15 +151,6 @@ export default async function photosRoutes(fastify) {
     await archive.finalize();
   });
 
-  fastify.get('/api/watermark', async (req, reply) => {
-    if (!fs.existsSync(WATERMARK_PATH)) {
-      return reply.code(404).send({ error: 'Aucun filigrane configuré.' });
-    }
-    reply.header('Content-Type', 'image/png');
-    reply.header('Cache-Control', 'no-cache');
-    return reply.send(fs.createReadStream(WATERMARK_PATH));
-  });
-
   // Liste les albums de la Page Facebook (pour que l'utilisateur en choisisse un)
   fastify.get('/api/facebook-albums', async (req, reply) => {
     const PAGE_ID = process.env.FACEBOOK_PAGE_ID;
@@ -271,16 +258,4 @@ export default async function photosRoutes(fastify) {
     };
   });
 
-  fastify.post('/api/watermark', async (req, reply) => {
-    const data = await req.file({ limits: { fileSize: 5 * 1024 * 1024 } });
-    if (!data) return reply.code(400).send({ error: 'Fichier manquant.' });
-
-    const mime = data.mimetype;
-    if (!mime.startsWith('image/')) {
-      return reply.code(400).send({ error: 'Le fichier doit être une image.' });
-    }
-
-    await pipeline(data.file, fs.createWriteStream(WATERMARK_PATH));
-    return { ok: true };
-  });
 }
