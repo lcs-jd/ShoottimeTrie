@@ -210,10 +210,39 @@ export default async function photosRoutes(fastify) {
     return { albums };
   });
 
+  // Réinitialiser les photos FB pour permettre un relancement propre
+  fastify.post('/api/sessions/:sessionId/reset-facebook', async (req, reply) => {
+    const { sessionId } = req.params;
+    const { scope } = req.body || {}; // 'all' | 'errors_only'
+
+    const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
+    if (!session) return reply.code(404).send({ error: 'session not found' });
+
+    // Vider les jobs en attente dans la queue
+    await facebookQueue.drain();
+
+    let resetCount;
+    if (scope === 'errors_only') {
+      const result = db.prepare(
+        "UPDATE photos SET status = 'watermarked', facebook_photo_id = NULL WHERE session_id = ? AND status = 'facebook_error'"
+      ).run(sessionId);
+      resetCount = result.changes;
+    } else {
+      // Remettre published ET facebook_error en watermarked
+      const result = db.prepare(
+        "UPDATE photos SET status = 'watermarked', facebook_photo_id = NULL WHERE session_id = ? AND status IN ('published', 'facebook_error')"
+      ).run(sessionId);
+      resetCount = result.changes;
+    }
+
+    db.prepare("UPDATE sessions SET status = 'watermarked' WHERE id = ?").run(sessionId);
+    return { reset: resetCount };
+  });
+
   // Publier les photos filigranées dans un album Facebook existant
   fastify.post('/api/sessions/:sessionId/publish-facebook', async (req, reply) => {
     const { sessionId } = req.params;
-    const { albumId, albumName } = req.body || {};
+    const { albumId, albumName, photoIds } = req.body || {};
 
     if (!process.env.FACEBOOK_PAGE_ID || !process.env.FACEBOOK_PAGE_ACCESS_TOKEN) {
       return reply.code(503).send({ error: 'Publication Facebook non configurée (variables d\'environnement manquantes).' });
@@ -225,12 +254,26 @@ export default async function photosRoutes(fastify) {
     const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
     if (!session) return reply.code(404).send({ error: 'session not found' });
 
-    const photos = db.prepare(
+    const allWatermarked = db.prepare(
       "SELECT * FROM photos WHERE session_id = ? AND status = 'watermarked'"
     ).all(sessionId);
 
-    if (photos.length === 0) {
+    if (allWatermarked.length === 0) {
       return reply.code(400).send({ error: 'Aucune photo filigranée à publier.' });
+    }
+
+    // Appliquer l'ordre personnalisé si fourni, sinon ordre DB par défaut
+    let photos;
+    if (Array.isArray(photoIds) && photoIds.length > 0) {
+      const byId = Object.fromEntries(allWatermarked.map(p => [p.id, p]));
+      photos = photoIds.map(id => byId[id]).filter(Boolean);
+      // Photos non mentionnées dans photoIds ajoutées à la fin
+      const mentioned = new Set(photoIds);
+      for (const p of allWatermarked) {
+        if (!mentioned.has(p.id)) photos.push(p);
+      }
+    } else {
+      photos = allWatermarked;
     }
 
     db.prepare('INSERT INTO facebook_albums (id, session_id, album_id, album_name) VALUES (?, ?, ?, ?)')
