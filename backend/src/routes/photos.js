@@ -5,6 +5,7 @@ import archiver from 'archiver';
 import db from '../db.js';
 import { watermarkQueue, facebookQueue } from '../workers/queue.js';
 import { broadcast } from './sse.js';
+import { extractTakenAt } from '../utils/exif.js';
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || './data');
 
@@ -16,15 +17,48 @@ export default async function photosRoutes(fastify) {
     const session = db.prepare('SELECT id FROM sessions WHERE id = ?').get(sessionId);
     if (!session) return reply.code(404).send({ error: 'session not found' });
 
+    // sort: 'filename' (défaut), 'taken_at', 'date', 'status'
+    // order: 'asc' (défaut) ou 'desc'
+    const sortParam  = req.query.sort  || 'filename';
+    const orderParam = (req.query.order || 'asc').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+
+    const SORT_COL = {
+      filename: `filename ${orderParam}`,
+      taken_at: `COALESCE(taken_at, 9999999999) ${orderParam}, filename ${orderParam}`,
+      date:     `created_at ${orderParam}`,
+      status:   `CASE status WHEN 'pending' THEN 0 WHEN 'kept' THEN 1 WHEN 'discarded' THEN 2 WHEN 'watermarked' THEN 3 WHEN 'published' THEN 4 ELSE 5 END ${orderParam}, filename ASC`,
+    };
+    const orderClause = SORT_COL[sortParam] ?? SORT_COL.filename;
+
     const query = status
-      ? 'SELECT * FROM photos WHERE session_id = ? AND status = ? ORDER BY created_at ASC'
-      : 'SELECT * FROM photos WHERE session_id = ? ORDER BY created_at ASC';
+      ? `SELECT * FROM photos WHERE session_id = ? AND status = ? ORDER BY ${orderClause}`
+      : `SELECT * FROM photos WHERE session_id = ? ORDER BY ${orderClause}`;
 
     const photos = status
       ? db.prepare(query).all(sessionId, status)
       : db.prepare(query).all(sessionId);
 
     return photos;
+  });
+
+  // Backfill taken_at pour les photos existantes sans date EXIF
+  fastify.post('/api/sessions/:sessionId/backfill-exif', async (req, reply) => {
+    const { sessionId } = req.params;
+    const photos = db.prepare(
+      'SELECT id, original_path FROM photos WHERE session_id = ? AND taken_at IS NULL'
+    ).all(sessionId);
+
+    let updated = 0;
+    for (const photo of photos) {
+      const absPath = path.join(DATA_DIR, photo.original_path);
+      if (!fs.existsSync(absPath)) continue;
+      const takenAt = await extractTakenAt(absPath);
+      if (takenAt) {
+        db.prepare('UPDATE photos SET taken_at = ? WHERE id = ?').run(takenAt, photo.id);
+        updated++;
+      }
+    }
+    return { total: photos.length, updated };
   });
 
   fastify.post('/api/photos/:id/keep', async (req, reply) => {

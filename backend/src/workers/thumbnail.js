@@ -5,6 +5,7 @@ import fs from 'fs';
 import { connection } from './queue.js';
 import db from '../db.js';
 import { broadcast } from '../routes/sse.js';
+import { extractTakenAt } from '../utils/exif.js';
 
 const DATA_DIR    = path.resolve(process.env.DATA_DIR || './data');
 const PROXIES_DIR = path.join(DATA_DIR, 'proxies');
@@ -22,12 +23,14 @@ export const thumbnailWorker = new Worker('thumbnail', async (job) => {
     .webp({ quality: 75 })
     .toFile(proxyPath);
 
+  const takenAt = await extractTakenAt(originalPath);
+
   db.transaction(() => {
-    db.prepare('UPDATE photos SET proxy_path = ?, status = ? WHERE id = ?')
-      .run(`proxies/${proxyFilename}`, 'pending', photoId);
+    db.prepare('UPDATE photos SET proxy_path = ?, status = ?, taken_at = ? WHERE id = ?')
+      .run(`proxies/${proxyFilename}`, 'pending', takenAt, photoId);
   })();
 
-  broadcast(sessionId, { type: 'proxy_ready', photoId });
+  broadcast(sessionId, { type: 'proxy_ready', photoId, takenAt });
 }, {
   connection,
   concurrency: 2,

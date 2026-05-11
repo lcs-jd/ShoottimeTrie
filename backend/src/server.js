@@ -12,6 +12,10 @@ import photosRoutes from './routes/photos.js';
 import sseRoutes from './routes/sse.js';
 import authRoutes from './routes/auth.js';
 import settingsRoutes from './routes/settings.js';
+import { extractTakenAt } from './utils/exif.js';
+import { broadcast } from './routes/sse.js';
+import db from './db.js';
+import fs from 'fs';
 
 // Démarrer les workers (import déclenche leur instanciation)
 import { thumbnailWorker } from './workers/thumbnail.js';
@@ -76,6 +80,37 @@ try {
   fastify.log.error(err);
   process.exit(1);
 }
+
+// Backfill taken_at pour toutes les photos existantes sans date EXIF (tâche de fond)
+setImmediate(async () => {
+  const photos = db.prepare(
+    'SELECT id, original_path FROM photos WHERE taken_at IS NULL AND proxy_path IS NOT NULL'
+  ).all();
+  if (!photos.length) return;
+
+  console.log(`[backfill-exif] ${photos.length} photo(s) sans date EXIF…`);
+  let updated = 0;
+  const sessionsUpdated = new Set();
+
+  for (const photo of photos) {
+    const absPath = path.join(DATA_DIR, photo.original_path);
+    if (!fs.existsSync(absPath)) continue;
+    const takenAt = await extractTakenAt(absPath);
+    if (takenAt) {
+      db.prepare('UPDATE photos SET taken_at = ? WHERE id = ?').run(takenAt, photo.id);
+      updated++;
+      // Récupérer la session pour broadcaster la mise à jour
+      const row = db.prepare('SELECT session_id FROM photos WHERE id = ?').get(photo.id);
+      if (row) sessionsUpdated.add(row.session_id);
+    }
+  }
+
+  // Notifier les sessions concernées pour que le frontend recharge
+  for (const sessionId of sessionsUpdated) {
+    broadcast(sessionId, { type: 'exif_ready' });
+  }
+  console.log(`[backfill-exif] ${updated}/${photos.length} photos mises à jour.`);
+});
 
 // Graceful shutdown : attendre la fin des jobs en cours avant de quitter
 async function shutdown(signal) {

@@ -20,29 +20,36 @@ const FILTERS = [
 
 export default function SortingGallery() {
   const { sessionId } = useParams();
-  const [photos, setPhotos]     = useState([]);
-  const [filter, setFilter]     = useState('all');
-  const [session, setSession]   = useState(null);
+  const [photos, setPhotos]         = useState([]);
+  const [filter, setFilter]         = useState('all');
+  const [sort, setSort]             = useState('filename');
+  const [order, setOrder]           = useState('asc');
+  const [session, setSession]       = useState(null);
   const [modalIndex, setModalIndex] = useState(null);
 
   useEffect(() => {
     apiFetch(`/api/sessions/${sessionId}`).then(r => r.json()).then(setSession).catch(console.error);
-    apiFetch(`/api/sessions/${sessionId}/photos`).then(r => r.json()).then(setPhotos).catch(console.error);
   }, [sessionId]);
+
+  useEffect(() => {
+    apiFetch(`/api/sessions/${sessionId}/photos?sort=${sort}&order=${order}`)
+      .then(r => r.json()).then(setPhotos).catch(console.error);
+  }, [sessionId, sort, order]);
 
   const { connected } = useSSE(sessionId, useCallback((event) => {
     if (event.type === 'photo_sorted') {
       setPhotos(prev => prev.map(p => p.id === event.photoId ? { ...p, status: event.status } : p));
     } else if (event.type === 'keep_all') {
       setPhotos(prev => prev.map(p => p.status !== 'discarded' ? { ...p, status: 'kept' } : p));
-    } else if (event.type === 'proxy_ready' || event.type === 'upload_done') {
-      apiFetch(`/api/sessions/${sessionId}/photos`).then(r => r.json()).then(setPhotos).catch(console.error);
+    } else if (event.type === 'proxy_ready' || event.type === 'upload_done' || event.type === 'exif_ready') {
+      apiFetch(`/api/sessions/${sessionId}/photos?sort=${sort}&order=${order}`)
+        .then(r => r.json()).then(setPhotos).catch(console.error);
     } else if (event.type === 'proxy_error') {
       setPhotos(prev => prev.map(p => p.id === event.photoId ? { ...p, status: 'proxy_error' } : p));
     } else if (event.type === 'watermark_error') {
       setPhotos(prev => prev.map(p => p.id === event.photoId ? { ...p, status: 'kept' } : p));
     }
-  }, [sessionId]));
+  }, [sessionId, sort, order]));
 
   async function keep(photoId) {
     await apiFetch(`/api/photos/${photoId}/keep`, { method: 'POST' });
@@ -112,7 +119,31 @@ export default function SortingGallery() {
             {counts.proxy_error    > 0 && <span style={{ color: 'var(--danger)' }}>{counts.proxy_error} erreur miniature</span>}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
+          <select
+            value={sort}
+            onChange={e => setSort(e.target.value)}
+            style={{
+              background: 'var(--surface2)', color: 'var(--muted)',
+              border: '1px solid var(--border2)', borderRadius: 'var(--radius)',
+              padding: '5px 10px', fontSize: 12, cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >
+            <option value="filename">Nom de fichier</option>
+            <option value="taken_at">Date de prise</option>
+            <option value="date">Date d'upload</option>
+            <option value="status">Statut</option>
+          </select>
+          <button
+            onClick={() => setOrder(o => o === 'asc' ? 'desc' : 'asc')}
+            title={order === 'asc' ? 'Ordre croissant' : 'Ordre décroissant'}
+            style={{
+              background: 'var(--surface2)', color: 'var(--muted)',
+              border: '1px solid var(--border2)', borderRadius: 'var(--radius)',
+              padding: '5px 9px', fontSize: 14, cursor: 'pointer', lineHeight: 1,
+            }}
+          >{order === 'asc' ? '↑' : '↓'}</button>
           <button
             className="btn btn-ghost btn-sm"
             onClick={keepAll}

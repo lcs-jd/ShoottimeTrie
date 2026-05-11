@@ -48,5 +48,7 @@ db.exec(`
 
 // Migrations
 try { db.exec("ALTER TABLE photos ADD COLUMN facebook_photo_id TEXT"); } catch {}
+try { db.exec("ALTER TABLE photos ADD COLUMN taken_at INTEGER"); } catch {}
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_photos_taken_at ON photos(taken_at)"); } catch {}
 
 export default db;
