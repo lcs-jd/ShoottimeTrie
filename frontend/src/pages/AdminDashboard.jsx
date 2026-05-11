@@ -720,11 +720,10 @@ export default function AdminDashboard() {
                 </details>
               )}
 
-              {/* Actions fin — relancement */}
-              {fbStep === 4 && (
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 4 }}>
-                  {/* Relancer les erreurs uniquement */}
-                  {fbPhotoResults.some(p => p.status === 'facebook_error') && (
+              {/* Actions — reset disponible à l'étape 3 (bloqué) et 4 (terminé) */}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 4 }}>
+                  {/* Relancer les erreurs uniquement (étape 4 seulement) */}
+                  {fbStep === 4 && fbPhotoResults.some(p => p.status === 'facebook_error') && (
                     <button
                       className="btn btn-ghost btn-sm"
                       onClick={() => resetFacebook('errors_only')}
@@ -734,25 +733,26 @@ export default function AdminDashboard() {
                       {fbResetting ? '…' : '↺ Relancer les erreurs'}
                     </button>
                   )}
-                  {/* Tout relancer */}
+                  {/* Tout relancer — visible étapes 3 et 4 */}
                   <button
-                    className="btn btn-ghost btn-sm"
+                    className="btn btn-danger-outline btn-sm"
                     onClick={() => resetFacebook('all')}
                     disabled={fbResetting}
-                    title="Remet toutes les photos (publiées + erreurs) en watermarked et recommence depuis zéro"
+                    title="Stoppe la publication, remet toutes les photos en watermarked et recommence depuis zéro"
                   >
-                    {fbResetting ? '…' : '↺ Tout relancer depuis zéro'}
+                    {fbResetting ? '…' : '⏹ Stopper et tout réinitialiser'}
                   </button>
-                  {/* Republier dans un autre album */}
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => { setFbStep(0); setFbSelectedAlbum(null); setFbAlbums([]); fbDoneRef.current = 0; fbTotalRef.current = 0; setFbDone(0); setFbTotal(0); setFbError(''); setFbAlbumId(null); setFbPhotoResults([]); }}
-                  >
-                    Republier dans un autre album
-                  </button>
+                  {/* Republier dans un autre album (étape 4 seulement) */}
+                  {fbStep === 4 && (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => { setFbStep(0); setFbSelectedAlbum(null); setFbAlbums([]); fbDoneRef.current = 0; fbTotalRef.current = 0; setFbDone(0); setFbTotal(0); setFbError(''); setFbAlbumId(null); setFbPhotoResults([]); }}
+                    >
+                      Republier dans un autre album
+                    </button>
+                  )}
                   {fbResetError && <span style={{ fontSize: 12, color: 'var(--danger)' }}>{fbResetError}</span>}
                 </div>
-              )}
             </>
           )}
         </div>
