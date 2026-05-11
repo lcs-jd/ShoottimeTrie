@@ -5,22 +5,37 @@ export function broadcast(sessionId, data) {
   if (!sessionClients) return;
 
   const payload = `data: ${JSON.stringify(data)}\n\n`;
+  const dead = [];
+
   for (const res of sessionClients) {
     try {
       res.raw.write(payload);
     } catch {
-      // client déconnecté, sera nettoyé à la fermeture
+      dead.push(res);
     }
   }
+
+  // Nettoyer les clients qui n'ont pas pu recevoir le message
+  for (const res of dead) {
+    sessionClients.delete(res);
+  }
+  if (sessionClients.size === 0) clients.delete(sessionId);
 }
+
+// Nettoyage périodique des sessions vides (toutes les 5 min)
+setInterval(() => {
+  for (const [sessionId, set] of clients.entries()) {
+    if (set.size === 0) clients.delete(sessionId);
+  }
+}, 5 * 60 * 1000);
 
 export default async function sseRoutes(fastify) {
   fastify.get('/api/sessions/:sessionId/events', (req, reply) => {
     const { sessionId } = req.params;
 
-    reply.raw.setHeader('Content-Type', 'text/event-stream');
+    reply.raw.setHeader('Content-Type',  'text/event-stream');
     reply.raw.setHeader('Cache-Control', 'no-cache');
-    reply.raw.setHeader('Connection', 'keep-alive');
+    reply.raw.setHeader('Connection',    'keep-alive');
     reply.raw.setHeader('X-Accel-Buffering', 'no');
     reply.raw.flushHeaders();
 

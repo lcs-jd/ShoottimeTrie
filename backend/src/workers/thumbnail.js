@@ -6,7 +6,7 @@ import { connection } from './queue.js';
 import db from '../db.js';
 import { broadcast } from '../routes/sse.js';
 
-const DATA_DIR = path.resolve(process.env.DATA_DIR || './data');
+const DATA_DIR    = path.resolve(process.env.DATA_DIR || './data');
 const PROXIES_DIR = path.join(DATA_DIR, 'proxies');
 
 fs.mkdirSync(PROXIES_DIR, { recursive: true });
@@ -15,15 +15,17 @@ export const thumbnailWorker = new Worker('thumbnail', async (job) => {
   const { photoId, originalPath, sessionId } = job.data;
 
   const proxyFilename = `${photoId}.webp`;
-  const proxyPath = path.join(PROXIES_DIR, proxyFilename);
+  const proxyPath     = path.join(PROXIES_DIR, proxyFilename);
 
   await sharp(originalPath)
     .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
     .webp({ quality: 75 })
     .toFile(proxyPath);
 
-  db.prepare('UPDATE photos SET proxy_path = ?, status = ? WHERE id = ?')
-    .run(`proxies/${proxyFilename}`, 'pending', photoId);
+  db.transaction(() => {
+    db.prepare('UPDATE photos SET proxy_path = ?, status = ? WHERE id = ?')
+      .run(`proxies/${proxyFilename}`, 'pending', photoId);
+  })();
 
   broadcast(sessionId, { type: 'proxy_ready', photoId });
 }, {
@@ -33,4 +35,18 @@ export const thumbnailWorker = new Worker('thumbnail', async (job) => {
 
 thumbnailWorker.on('failed', (job, err) => {
   console.error(`[thumbnail] job ${job?.id} failed:`, err.message);
+
+  if (!job?.data?.photoId) return;
+
+  // Marquer la photo comme proxy_error pour que l'UI puisse l'afficher
+  db.transaction(() => {
+    db.prepare("UPDATE photos SET status = 'proxy_error' WHERE id = ?")
+      .run(job.data.photoId);
+  })();
+
+  broadcast(job.data.sessionId, {
+    type: 'proxy_error',
+    photoId: job.data.photoId,
+    error: err.message,
+  });
 });

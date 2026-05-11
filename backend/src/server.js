@@ -14,9 +14,9 @@ import authRoutes from './routes/auth.js';
 import settingsRoutes from './routes/settings.js';
 
 // Démarrer les workers (import déclenche leur instanciation)
-import './workers/thumbnail.js';
-import './workers/watermark.js';
-import './workers/facebook.js';
+import { thumbnailWorker } from './workers/thumbnail.js';
+import { watermarkWorker } from './workers/watermark.js';
+import { facebookWorker  } from './workers/facebook.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, '..', 'data'));
@@ -76,3 +76,18 @@ try {
   fastify.log.error(err);
   process.exit(1);
 }
+
+// Graceful shutdown : attendre la fin des jobs en cours avant de quitter
+async function shutdown(signal) {
+  fastify.log.info(`[shutdown] signal ${signal} reçu, arrêt propre…`);
+  await fastify.close();
+  await Promise.all([
+    thumbnailWorker.close(),
+    watermarkWorker.close(),
+    facebookWorker.close(),
+  ]);
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));

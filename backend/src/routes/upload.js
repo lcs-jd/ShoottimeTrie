@@ -52,17 +52,23 @@ export default async function uploadRoutes(fastify) {
 
     db.prepare('DELETE FROM sessions WHERE id = ?').run(req.params.id);
 
-    // Supprimer le dossier originals de la session
-    const sessionDir = path.join(ORIGINALS_DIR, req.params.id);
-    fs.rm(sessionDir, { recursive: true, force: true }, () => {});
-
-    // Supprimer les proxies et fichiers filigranés de chaque photo
-    const PROXIES_DIR = path.join(DATA_DIR, 'proxies');
+    // Suppression async en parallèle — pas bloquant pour la réponse HTTP
+    // mais proprement awaité pour éviter les race conditions
+    const sessionDir      = path.join(ORIGINALS_DIR, req.params.id);
+    const PROXIES_DIR     = path.join(DATA_DIR, 'proxies');
     const WATERMARKED_DIR = path.join(DATA_DIR, 'watermarked');
-    for (const photo of photos) {
-      fs.rm(path.join(PROXIES_DIR, `${photo.id}.webp`), { force: true }, () => {});
-      fs.rm(path.join(WATERMARKED_DIR, `${photo.id}.jpg`), { force: true }, () => {});
-    }
+
+    const deleteOps = [
+      fs.promises.rm(sessionDir, { recursive: true, force: true }),
+      ...photos.flatMap(photo => [
+        fs.promises.rm(path.join(PROXIES_DIR,     `${photo.id}.webp`), { force: true }),
+        fs.promises.rm(path.join(WATERMARKED_DIR, `${photo.id}.jpg`),  { force: true }),
+      ]),
+    ];
+    // On attend toutes les suppressions avant de répondre
+    await Promise.all(deleteOps).catch(err => {
+      fastify.log.warn(`[delete session] nettoyage partiel : ${err.message}`);
+    });
 
     return { ok: true };
   });

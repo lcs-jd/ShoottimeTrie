@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Masonry from 'react-masonry-css';
 import PhotoCard from '../components/PhotoCard.jsx';
+import PhotoModal from '../components/PhotoModal.jsx';
 import { useSSE } from '../hooks/useSSE.js';
 import { apiFetch } from '../lib/api.js';
 
@@ -14,26 +15,32 @@ const FILTERS = [
   { key: 'watermarked',    label: 'Filigrané' },
   { key: 'published',      label: 'Publiées'  },
   { key: 'facebook_error', label: 'Erreur FB' },
+  { key: 'proxy_error',    label: 'Erreur proxy' },
 ];
 
 export default function SortingGallery() {
   const { sessionId } = useParams();
-  const [photos, setPhotos] = useState([]);
-  const [filter, setFilter] = useState('all');
-  const [session, setSession] = useState(null);
+  const [photos, setPhotos]     = useState([]);
+  const [filter, setFilter]     = useState('all');
+  const [session, setSession]   = useState(null);
+  const [modalIndex, setModalIndex] = useState(null);
 
   useEffect(() => {
     apiFetch(`/api/sessions/${sessionId}`).then(r => r.json()).then(setSession).catch(console.error);
     apiFetch(`/api/sessions/${sessionId}/photos`).then(r => r.json()).then(setPhotos).catch(console.error);
   }, [sessionId]);
 
-  useSSE(sessionId, useCallback((event) => {
+  const { connected } = useSSE(sessionId, useCallback((event) => {
     if (event.type === 'photo_sorted') {
       setPhotos(prev => prev.map(p => p.id === event.photoId ? { ...p, status: event.status } : p));
     } else if (event.type === 'keep_all') {
       setPhotos(prev => prev.map(p => p.status !== 'discarded' ? { ...p, status: 'kept' } : p));
     } else if (event.type === 'proxy_ready' || event.type === 'upload_done') {
       apiFetch(`/api/sessions/${sessionId}/photos`).then(r => r.json()).then(setPhotos).catch(console.error);
+    } else if (event.type === 'proxy_error') {
+      setPhotos(prev => prev.map(p => p.id === event.photoId ? { ...p, status: 'proxy_error' } : p));
+    } else if (event.type === 'watermark_error') {
+      setPhotos(prev => prev.map(p => p.id === event.photoId ? { ...p, status: 'kept' } : p));
     }
   }, [sessionId]));
 
@@ -52,10 +59,39 @@ export default function SortingGallery() {
   }
 
   const visible = filter === 'all' ? photos : photos.filter(p => p.status === filter);
-  const counts = photos.reduce((acc, p) => { acc[p.status] = (acc[p.status] || 0) + 1; return acc; }, {});
+  const counts  = photos.reduce((acc, p) => { acc[p.status] = (acc[p.status] || 0) + 1; return acc; }, {});
+
+  const modalPhoto = modalIndex !== null ? visible[modalIndex] : null;
+
+  async function modalKeep() {
+    if (!modalPhoto) return;
+    await keep(modalPhoto.id);
+    if (modalIndex < visible.length - 1) setModalIndex(i => i + 1);
+  }
+  async function modalDiscard() {
+    if (!modalPhoto) return;
+    await discard(modalPhoto.id);
+    if (modalIndex < visible.length - 1) setModalIndex(i => i + 1);
+  }
 
   return (
     <div className="page-wide fadein">
+
+      {/* Bandeau déconnexion SSE */}
+      {!connected && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '8px 14px', marginBottom: 12,
+          background: 'rgba(245,158,11,0.08)',
+          border: '1px solid rgba(245,158,11,0.25)',
+          borderRadius: 'var(--radius)', fontSize: 13,
+          color: 'var(--accent)',
+        }}>
+          <div className="spinner spinner-sm" style={{ borderTopColor: 'var(--accent)' }} />
+          Connexion temps réel perdue — reconnexion en cours…
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
         <div>
@@ -73,6 +109,7 @@ export default function SortingGallery() {
             {counts.watermarked    > 0 && <span style={{ color: 'var(--accent)' }}>{counts.watermarked} filigranées</span>}
             {counts.published      > 0 && <span style={{ color: '#1877f2' }}>{counts.published} publiées</span>}
             {counts.facebook_error > 0 && <span style={{ color: 'var(--danger)' }}>{counts.facebook_error} erreur FB</span>}
+            {counts.proxy_error    > 0 && <span style={{ color: 'var(--danger)' }}>{counts.proxy_error} erreur miniature</span>}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
@@ -91,16 +128,19 @@ export default function SortingGallery() {
 
       {/* Filtres */}
       <div className="filter-bar">
-        {FILTERS.map(({ key, label }) => (
-          <button
-            key={key}
-            className={`filter-btn${filter === key ? ' active' : ''}`}
-            onClick={() => setFilter(key)}
-          >
-            {label}
-            {key !== 'all' && counts[key] ? <span className="filter-count">{counts[key]}</span> : null}
-          </button>
-        ))}
+        {FILTERS.map(({ key, label }) => {
+          if (key !== 'all' && !counts[key]) return null;
+          return (
+            <button
+              key={key}
+              className={`filter-btn${filter === key ? ' active' : ''}`}
+              onClick={() => setFilter(key)}
+            >
+              {label}
+              {key !== 'all' && counts[key] ? <span className="filter-count">{counts[key]}</span> : null}
+            </button>
+          );
+        })}
       </div>
 
       {/* Vide */}
@@ -115,10 +155,30 @@ export default function SortingGallery() {
 
       {/* Galerie */}
       <Masonry breakpointCols={BREAKPOINTS} className="masonry-grid" columnClassName="masonry-col">
-        {visible.map(photo => (
-          <PhotoCard key={photo.id} photo={photo} onKeep={() => keep(photo.id)} onDiscard={() => discard(photo.id)} />
+        {visible.map((photo, idx) => (
+          <PhotoCard
+            key={photo.id}
+            photo={photo}
+            onKeep={() => keep(photo.id)}
+            onDiscard={() => discard(photo.id)}
+            onExpand={() => setModalIndex(idx)}
+          />
         ))}
       </Masonry>
+
+      {/* Modal preview */}
+      {modalPhoto && (
+        <PhotoModal
+          photo={modalPhoto}
+          index={modalIndex}
+          total={visible.length}
+          onClose={() => setModalIndex(null)}
+          onKeep={modalKeep}
+          onDiscard={modalDiscard}
+          onPrev={() => setModalIndex(i => Math.max(0, i - 1))}
+          onNext={() => setModalIndex(i => Math.min(visible.length - 1, i + 1))}
+        />
+      )}
     </div>
   );
 }

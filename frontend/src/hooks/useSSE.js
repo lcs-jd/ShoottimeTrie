@@ -1,8 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export function useSSE(sessionId, onMessage) {
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
+
+  const [connected, setConnected] = useState(true);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -13,6 +15,10 @@ export function useSSE(sessionId, onMessage) {
 
     function connect() {
       es = new EventSource(`/api/sessions/${sessionId}/events`, { withCredentials: true });
+
+      es.onopen = () => {
+        setConnected(true);
+      };
 
       es.onmessage = (e) => {
         try {
@@ -25,6 +31,7 @@ export function useSSE(sessionId, onMessage) {
 
       es.onerror = () => {
         es.close();
+        setConnected(false);
         if (active) {
           retryTimer = setTimeout(connect, 3000);
         }
@@ -39,4 +46,6 @@ export function useSSE(sessionId, onMessage) {
       es?.close();
     };
   }, [sessionId]);
+
+  return { connected };
 }
