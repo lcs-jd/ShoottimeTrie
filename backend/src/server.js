@@ -30,21 +30,52 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 const JWT_SECRET = process.env.JWT_SECRET || 'changeme-jwt-secret-32chars-min!!';
 const COOKIE_NAME = 'st_token';
 
+// Garde-fou : en production, refuser de démarrer avec les secrets d'exemple.
+if (process.env.NODE_ENV === 'production') {
+  const weak = [];
+  if (JWT_SECRET === 'changeme-jwt-secret-32chars-min!!' || JWT_SECRET.length < 32) weak.push('JWT_SECRET');
+  if (!process.env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD === 'changeme') weak.push('ADMIN_PASSWORD');
+  if (weak.length) {
+    console.error(`[sécurité] Refus de démarrer : ${weak.join(' et ')} ${weak.length > 1 ? 'ont' : 'a'} une valeur par défaut ou trop faible.`);
+    process.exit(1);
+  }
+}
+
 const fastify = Fastify({ logger: { level: 'info' } });
 
+// CORS : `origin: '*'` avec `credentials: true` est refusé par les navigateurs et
+// signale une configuration laxiste. En production on exige une origine explicite.
+const corsOrigin = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map(o => o.trim()).filter(Boolean)
+  : (process.env.NODE_ENV === 'production' ? false : true);
+
 await fastify.register(cors, {
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: corsOrigin,
   credentials: true,
+  methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
 });
 
 await fastify.register(cookie);
 
 await fastify.register(jwt, { secret: JWT_SECRET });
 
-// Garde globale : toutes les routes /api/* sauf /api/auth/*
+// En-têtes de sécurité sur toutes les réponses
+fastify.addHook('onSend', async (req, reply) => {
+  reply.header('X-Content-Type-Options', 'nosniff');
+  reply.header('X-Frame-Options', 'DENY');
+  reply.header('Referrer-Policy', 'no-referrer');
+  reply.header('Cross-Origin-Resource-Policy', 'same-origin');
+  reply.header('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  reply.removeHeader('X-Powered-By');
+});
+
+// Garde globale : /api/* (sauf /api/auth/*) et /media/* exigent une session valide.
+// Les médias sont des photos privées : ils ne doivent jamais être servis en anonyme.
 fastify.addHook('preHandler', async (req, reply) => {
-  if (!req.url.startsWith('/api/')) return;
-  if (req.url.startsWith('/api/auth/')) return;
+  const isApi   = req.url.startsWith('/api/');
+  const isMedia = req.url.startsWith('/media/');
+  if (!isApi && !isMedia) return;
+  if (isApi && req.url.startsWith('/api/auth/')) return;
 
   const token = req.cookies?.[COOKIE_NAME];
   if (!token) return reply.code(401).send({ error: 'Non authentifié.' });
@@ -59,12 +90,20 @@ await fastify.register(multipart, {
   limits: { fileSize: 150 * 1024 * 1024 },
 });
 
-// Servir les fichiers media (proxies, originals, watermarked)
-await fastify.register(staticPlugin, {
-  root: DATA_DIR,
-  prefix: '/media/',
-  decorateReply: false,
-});
+// Servir les fichiers media. On expose uniquement les sous-dossiers d'images :
+// servir DATA_DIR à la racine exposerait la base SQLite (shoottime.db et son WAL).
+for (const dir of ['proxies', 'originals', 'watermarked']) {
+  const root = path.join(DATA_DIR, dir);
+  fs.mkdirSync(root, { recursive: true });
+  await fastify.register(staticPlugin, {
+    root,
+    prefix: `/media/${dir}/`,
+    decorateReply: false,
+    index: false,
+    dotfiles: 'deny',
+    serveDotFiles: false,
+  });
+}
 
 await fastify.register(authRoutes);
 await fastify.register(uploadRoutes);

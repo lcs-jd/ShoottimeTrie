@@ -38,9 +38,20 @@ function getWatermarkSettings() {
 
 export default async function settingsRoutes(fastify) {
   fastify.get('/api/settings', async () => {
-    const rows = db.prepare('SELECT key, value FROM settings').all();
+    // On ne renvoie que les clés publiques : la table `settings` contient aussi
+    // le mot de passe Zimbra chiffré, qui ne doit jamais transiter par l'API.
+    const placeholders = ALLOWED_KEYS.map(() => '?').join(',');
+    const rows = db.prepare(`SELECT key, value FROM settings WHERE key IN (${placeholders})`).all(...ALLOWED_KEYS);
     return Object.fromEntries(rows.map(r => [r.key, r.value]));
   });
+
+  // Bornes des réglages numériques : évite qu'une valeur absurde fasse exploser
+  // la mémoire de sharp lors du redimensionnement du logo.
+  const NUMERIC_BOUNDS = {
+    watermark_size:    { min: 1, max: 100 },
+    watermark_opacity: { min: 0, max: 100 },
+    watermark_margin:  { min: 0, max: 50  },
+  };
 
   fastify.post('/api/settings', async (req, reply) => {
     const body = req.body || {};
@@ -49,7 +60,24 @@ export default async function settingsRoutes(fastify) {
     for (const [key, value] of Object.entries(body)) {
       if (!ALLOWED_KEYS.includes(key)) continue;
       if (typeof value !== 'string') continue;
-      upsert.run(key, value.trim());
+      const v = value.trim();
+
+      if (key === 'watermark_position' && !WATERMARK_POSITIONS.includes(v)) {
+        return reply.code(400).send({ error: 'Position de filigrane invalide.' });
+      }
+      const bounds = NUMERIC_BOUNDS[key];
+      if (bounds) {
+        const n = parseFloat(v);
+        if (!Number.isFinite(n) || n < bounds.min || n > bounds.max) {
+          return reply.code(400).send({ error: `Valeur invalide pour ${key} (attendu entre ${bounds.min} et ${bounds.max}).` });
+        }
+      }
+      if (key === 'facebook_page_url' && v && !/^https:\/\/(www\.)?facebook\.com\//i.test(v)) {
+        return reply.code(400).send({ error: 'URL Facebook invalide.' });
+      }
+      if (v.length > 500) return reply.code(400).send({ error: 'Valeur trop longue.' });
+
+      upsert.run(key, v);
     }
     return { ok: true };
   });
@@ -68,7 +96,25 @@ export default async function settingsRoutes(fastify) {
     for await (const part of parts) {
       if (part.type !== 'file') continue;
       fs.mkdirSync(path.dirname(LOGO_PATH), { recursive: true });
-      await pipeline(part.file, fs.createWriteStream(LOGO_PATH));
+
+      // On écrit d'abord dans un fichier temporaire : le logo n'est remplacé
+      // que si le contenu est réellement une image décodable.
+      const tmp = `${LOGO_PATH}.upload`;
+      await pipeline(part.file, fs.createWriteStream(tmp));
+
+      if (part.file.truncated) {
+        await fs.promises.rm(tmp, { force: true });
+        return reply.code(413).send({ error: 'Logo trop volumineux (5 Mo max).' });
+      }
+      try {
+        await sharp(tmp).metadata();
+      } catch {
+        await fs.promises.rm(tmp, { force: true });
+        return reply.code(400).send({ error: "Le fichier n'est pas une image valide." });
+      }
+      // Normalisé en PNG : le logo est toujours servi comme tel
+      await sharp(tmp).png().toFile(LOGO_PATH);
+      await fs.promises.rm(tmp, { force: true });
       return { ok: true };
     }
     return reply.code(400).send({ error: 'Aucun fichier reçu.' });
@@ -93,13 +139,27 @@ export default async function settingsRoutes(fastify) {
     const parts = req.parts({ limits: { fileSize: 50 * 1024 * 1024 } });
     for await (const part of parts) {
       if (part.type !== 'file') continue;
-      const ext = path.extname(part.filename || '').toLowerCase() || '.jpg';
+
+      const tmp = `${PREVIEW_PHOTO_PATH}.upload`;
+      await pipeline(part.file, fs.createWriteStream(tmp));
+
+      if (part.file.truncated) {
+        await fs.promises.rm(tmp, { force: true });
+        return reply.code(413).send({ error: 'Photo trop volumineuse (50 Mo max).' });
+      }
+      try {
+        await sharp(tmp).metadata();
+      } catch {
+        await fs.promises.rm(tmp, { force: true });
+        return reply.code(400).send({ error: "Le fichier n'est pas une image valide." });
+      }
+
       // Supprimer les anciennes versions
       ['.jpg', '.jpeg', '.png', '.webp'].forEach(e => {
         try { fs.unlinkSync(PREVIEW_PHOTO_PATH + e); } catch {}
       });
-      const dest = PREVIEW_PHOTO_PATH + ext;
-      await pipeline(part.file, fs.createWriteStream(dest));
+      // Extension imposée par le serveur, jamais celle du client
+      await fs.promises.rename(tmp, `${PREVIEW_PHOTO_PATH}.jpg`);
       return { ok: true };
     }
     return reply.code(400).send({ error: 'Aucun fichier reçu.' });

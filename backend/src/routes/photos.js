@@ -134,9 +134,14 @@ export default async function photosRoutes(fastify) {
     // Nom lisible : on garde le nom d'origine, avec l'extension du fichier réellement servi
     const ext      = path.extname(absPath);
     const baseName = photo.filename.replace(/\.[^.]+$/, '');
-    const safeName = `${baseName}${ext}`.replace(/["\\\r\n]/g, '_');
+    // Nom neutralisé : pas de guillemet, antislash, saut de ligne ni séparateur
+    // de chemin, qui permettraient d'injecter des directives dans l'en-tête.
+    const safeName = `${baseName}${ext}`
+      .replace(/[^A-Za-z0-9._\- ]/g, '_')
+      .slice(0, 200) || 'photo.jpg';
 
     reply.header('Content-Type', 'application/octet-stream');
+    reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('Content-Disposition', `attachment; filename="${safeName}"`);
     reply.header('Content-Length', fs.statSync(absPath).size);
     return reply.send(fs.createReadStream(absPath));
