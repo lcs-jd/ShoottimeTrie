@@ -12,6 +12,7 @@ import photosRoutes from './routes/photos.js';
 import sseRoutes from './routes/sse.js';
 import authRoutes from './routes/auth.js';
 import settingsRoutes from './routes/settings.js';
+import emailRoutes from './routes/email.js';
 import { extractTakenAt } from './utils/exif.js';
 import { broadcast } from './routes/sse.js';
 import db from './db.js';
@@ -70,6 +71,7 @@ await fastify.register(uploadRoutes);
 await fastify.register(photosRoutes);
 await fastify.register(sseRoutes);
 await fastify.register(settingsRoutes);
+await fastify.register(emailRoutes);
 
 fastify.get('/health', async () => ({ ok: true }));
 

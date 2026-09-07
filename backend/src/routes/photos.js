@@ -100,6 +100,48 @@ export default async function photosRoutes(fastify) {
     return { updated: photos.length };
   });
 
+  fastify.post('/api/sessions/:sessionId/discard-all', async (req, reply) => {
+    const { sessionId } = req.params;
+    const session = db.prepare('SELECT id FROM sessions WHERE id = ?').get(sessionId);
+    if (!session) return reply.code(404).send({ error: 'session not found' });
+
+    // Seules les photos encore triables : on ne touche pas aux filigranées/publiées
+    const photos = db.prepare(
+      "SELECT id FROM photos WHERE session_id = ? AND status IN ('pending', 'kept')"
+    ).all(sessionId);
+
+    const stmt = db.prepare("UPDATE photos SET status = 'discarded' WHERE id = ?");
+    const updateMany = db.transaction((rows) => {
+      for (const row of rows) stmt.run(row.id);
+    });
+    updateMany(photos);
+
+    broadcast(sessionId, { type: 'discard_all', count: photos.length });
+    return { updated: photos.length };
+  });
+
+  // Téléchargement d'une photo en pleine qualité (original, ou filigranée si déjà traitée)
+  fastify.get('/api/photos/:id/download', async (req, reply) => {
+    const photo = db.prepare('SELECT * FROM photos WHERE id = ?').get(req.params.id);
+    if (!photo) return reply.code(404).send({ error: 'not found' });
+
+    const useWatermarked = Boolean(photo.watermarked_path) && req.query.version !== 'original';
+    const relPath  = useWatermarked ? photo.watermarked_path : photo.original_path;
+    const absPath  = path.join(DATA_DIR, relPath);
+
+    if (!fs.existsSync(absPath)) return reply.code(404).send({ error: 'file not found' });
+
+    // Nom lisible : on garde le nom d'origine, avec l'extension du fichier réellement servi
+    const ext      = path.extname(absPath);
+    const baseName = photo.filename.replace(/\.[^.]+$/, '');
+    const safeName = `${baseName}${ext}`.replace(/["\\\r\n]/g, '_');
+
+    reply.header('Content-Type', 'application/octet-stream');
+    reply.header('Content-Disposition', `attachment; filename="${safeName}"`);
+    reply.header('Content-Length', fs.statSync(absPath).size);
+    return reply.send(fs.createReadStream(absPath));
+  });
+
   fastify.post('/api/sessions/:sessionId/process', async (req, reply) => {
     const { sessionId } = req.params;
     const photos = db.prepare(

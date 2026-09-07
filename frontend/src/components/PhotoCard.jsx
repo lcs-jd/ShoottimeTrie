@@ -21,7 +21,7 @@ function formatTakenAt(ts) {
   return `${day}/${mon}/${yr} ${h}:${m}`;
 }
 
-export default function PhotoCard({ photo, onKeep, onDiscard, onExpand }) {
+export default function PhotoCard({ photo, onKeep, onDiscard, onExpand, selectMode = false, selected = false, onToggleSelect }) {
   const [loading, setLoading] = useState(false);
   const proxyUrl    = photo.proxy_path ? `/media/${photo.proxy_path}` : null;
   const isKept      = photo.status === 'kept';
@@ -37,14 +37,28 @@ export default function PhotoCard({ photo, onKeep, onDiscard, onExpand }) {
   }
 
   return (
-    <div className={`photo-card ${photo.status}`}>
+    <div
+      className={`photo-card ${photo.status}`}
+      style={selected ? { outline: '2px solid var(--accent)', outlineOffset: 2 } : undefined}
+    >
       {/* Image */}
       <div
         className="photo-card-img-wrap"
-        onClick={proxyUrl ? onExpand : undefined}
-        title={proxyUrl ? 'Agrandir' : undefined}
-        style={{ cursor: proxyUrl ? 'zoom-in' : 'default' }}
+        onClick={selectMode ? onToggleSelect : (proxyUrl ? onExpand : undefined)}
+        title={selectMode ? (selected ? 'Retirer de la sélection' : 'Ajouter à la sélection') : (proxyUrl ? 'Agrandir' : undefined)}
+        style={{ cursor: selectMode ? 'pointer' : (proxyUrl ? 'zoom-in' : 'default'), position: 'relative' }}
       >
+        {selectMode && (
+          <div style={{
+            position: 'absolute', top: 8, left: 8, zIndex: 3,
+            width: 24, height: 24, borderRadius: 6,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 14, fontWeight: 700, pointerEvents: 'none',
+            background: selected ? 'var(--accent)' : 'rgba(0,0,0,0.55)',
+            color: selected ? '#000' : 'rgba(255,255,255,0.75)',
+            border: `1px solid ${selected ? 'var(--accent)' : 'rgba(255,255,255,0.35)'}`,
+          }}>{selected ? '✓' : ''}</div>
+        )}
         {proxyUrl ? (
           <img src={proxyUrl} alt={photo.filename} loading="lazy" />
         ) : photo.status === 'proxy_error' ? (
@@ -58,7 +72,7 @@ export default function PhotoCard({ photo, onKeep, onDiscard, onExpand }) {
             <span style={{ fontSize: 11 }}>Génération…</span>
           </div>
         )}
-        {proxyUrl && <div className="photo-expand-hint">⤢</div>}
+        {proxyUrl && !selectMode && <div className="photo-expand-hint">⤢</div>}
       </div>
 
       {/* Badge statut */}

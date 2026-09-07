@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import Masonry from 'react-masonry-css';
 import PhotoCard from '../components/PhotoCard.jsx';
 import PhotoModal from '../components/PhotoModal.jsx';
+import EmailDialog from '../components/EmailDialog.jsx';
 import { useSSE } from '../hooks/useSSE.js';
 import { apiFetch } from '../lib/api.js';
 
@@ -26,6 +27,10 @@ export default function SortingGallery() {
   const [order, setOrder]           = useState('asc');
   const [session, setSession]       = useState(null);
   const [modalIndex, setModalIndex] = useState(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [emailPhotos, setEmailPhotos] = useState(null);
+  const [toast, setToast]           = useState(null);
 
   useEffect(() => {
     apiFetch(`/api/sessions/${sessionId}`).then(r => r.json()).then(setSession).catch(console.error);
@@ -41,6 +46,8 @@ export default function SortingGallery() {
       setPhotos(prev => prev.map(p => p.id === event.photoId ? { ...p, status: event.status } : p));
     } else if (event.type === 'keep_all') {
       setPhotos(prev => prev.map(p => p.status !== 'discarded' ? { ...p, status: 'kept' } : p));
+    } else if (event.type === 'discard_all') {
+      setPhotos(prev => prev.map(p => (p.status === 'pending' || p.status === 'kept') ? { ...p, status: 'discarded' } : p));
     } else if (event.type === 'proxy_ready' || event.type === 'upload_done' || event.type === 'exif_ready') {
       apiFetch(`/api/sessions/${sessionId}/photos?sort=${sort}&order=${order}`)
         .then(r => r.json()).then(setPhotos).catch(console.error);
@@ -63,6 +70,21 @@ export default function SortingGallery() {
     const res = await apiFetch(`/api/sessions/${sessionId}/keep-all`, { method: 'POST' });
     if (!res.ok) return;
     setPhotos(prev => prev.map(p => p.status !== 'discarded' ? { ...p, status: 'kept' } : p));
+  }
+  async function discardAll() {
+    const n = photos.filter(p => p.status === 'pending' || p.status === 'kept').length;
+    if (!window.confirm(`Rejeter ${n} photo${n > 1 ? 's' : ''} ? Les photos déjà filigranées ne sont pas concernées.`)) return;
+    const res = await apiFetch(`/api/sessions/${sessionId}/discard-all`, { method: 'POST' });
+    if (!res.ok) return;
+    setPhotos(prev => prev.map(p => (p.status === 'pending' || p.status === 'kept') ? { ...p, status: 'discarded' } : p));
+  }
+
+  function toggleSelect(photoId) {
+    setSelectedIds(prev => prev.includes(photoId) ? prev.filter(id => id !== photoId) : [...prev, photoId]);
+  }
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelectedIds([]);
   }
 
   const visible = filter === 'all' ? photos : photos.filter(p => p.status === filter);
@@ -151,11 +173,55 @@ export default function SortingGallery() {
           >
             ✓ Tout valider
           </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={discardAll}
+            disabled={photos.filter(p => p.status === 'pending' || p.status === 'kept').length === 0}
+            style={{ color: 'var(--danger)' }}
+          >
+            ✕ Tout rejeter
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}
+            style={selectMode ? { color: 'var(--accent)', borderColor: 'rgba(245,158,11,0.45)' } : undefined}
+          >
+            {selectMode ? 'Annuler' : '☑ Sélectionner'}
+          </button>
           <Link to={`/dashboard/${sessionId}`}>
             <button className="btn btn-primary btn-sm">Dashboard →</button>
           </Link>
         </div>
       </div>
+
+      {/* Barre de sélection multiple */}
+      {selectMode && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          padding: '10px 14px', marginBottom: 12,
+          background: 'rgba(245,158,11,0.06)',
+          border: '1px solid rgba(245,158,11,0.25)',
+          borderRadius: 'var(--radius)',
+        }}>
+          <span style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 500 }}>
+            {selectedIds.length} sélectionnée{selectedIds.length > 1 ? 's' : ''}
+          </span>
+          <button className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(visible.map(p => p.id))}>
+            Tout sélectionner
+          </button>
+          {selectedIds.length > 0 && (
+            <button className="btn btn-ghost btn-sm" onClick={() => setSelectedIds([])}>Vider</button>
+          )}
+          <div style={{ flex: 1 }} />
+          <button
+            className="btn btn-primary btn-sm"
+            disabled={selectedIds.length === 0}
+            onClick={() => setEmailPhotos(photos.filter(p => selectedIds.includes(p.id)))}
+          >
+            ✉ Envoyer par email
+          </button>
+        </div>
+      )}
 
       {/* Filtres */}
       <div className="filter-bar">
@@ -190,6 +256,9 @@ export default function SortingGallery() {
           <PhotoCard
             key={photo.id}
             photo={photo}
+            selectMode={selectMode}
+            selected={selectedIds.includes(photo.id)}
+            onToggleSelect={() => toggleSelect(photo.id)}
             onKeep={() => keep(photo.id)}
             onDiscard={() => discard(photo.id)}
             onExpand={() => setModalIndex(idx)}
@@ -208,7 +277,32 @@ export default function SortingGallery() {
           onDiscard={modalDiscard}
           onPrev={() => setModalIndex(i => Math.max(0, i - 1))}
           onNext={() => setModalIndex(i => Math.min(visible.length - 1, i + 1))}
+          onEmail={(p) => setEmailPhotos([p])}
         />
+      )}
+      {/* Envoi par email */}
+      {emailPhotos && (
+        <EmailDialog
+          photos={emailPhotos}
+          onClose={() => setEmailPhotos(null)}
+          onSent={(res) => {
+            setToast(`Envoyé à ${res.sent} destinataire${res.sent > 1 ? 's' : ''} — ${res.attachments} pièce${res.attachments > 1 ? 's' : ''} jointe${res.attachments > 1 ? 's' : ''} (${res.sizeMb} Mo)`);
+            setTimeout(() => setToast(null), 6000);
+            exitSelectMode();
+          }}
+        />
+      )}
+
+      {/* Confirmation d'envoi */}
+      {toast && (
+        <div style={{
+          position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 10001, padding: '10px 18px', borderRadius: 8,
+          background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.45)',
+          color: 'var(--success)', fontSize: 13,
+        }}>
+          {toast}
+        </div>
       )}
     </div>
   );

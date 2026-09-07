@@ -9,13 +9,13 @@ export default function Settings() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Paramètres</h1>
-          <p className="page-subtitle">Filigrane et configuration Facebook</p>
+          <p className="page-subtitle">Filigrane, Facebook et envoi par email</p>
         </div>
       </div>
 
       {/* Onglets */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid var(--border)', paddingBottom: 0 }}>
-        {[{ id: 'watermark', label: '◈ Filigrane' }, { id: 'facebook', label: '↗ Facebook' }].map(t => (
+        {[{ id: 'watermark', label: '◈ Filigrane' }, { id: 'facebook', label: '↗ Facebook' }, { id: 'email', label: '✉ Email' }].map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
@@ -34,6 +34,7 @@ export default function Settings() {
 
       {tab === 'watermark' && <WatermarkTab />}
       {tab === 'facebook'  && <FacebookTab />}
+      {tab === 'email'     && <EmailTab />}
     </div>
   );
 }
@@ -427,6 +428,105 @@ function FacebookTab() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ── Onglet Email (Zimbra) ─────────────────────────────────────────────────────
+function EmailTab() {
+  const [cfg, setCfg]           = useState(null);
+  const [user, setUser]         = useState('');
+  const [password, setPassword] = useState('');
+  const [saving, setSaving]     = useState(false);
+  const [error, setError]       = useState(null);
+  const [saved, setSaved]       = useState(false);
+
+  useEffect(() => { load(); }, []);
+
+  function load() {
+    apiFetch('/api/email/config').then(r => r.json())
+      .then(data => { setCfg(data); setUser(data.user || ''); })
+      .catch(() => setCfg({ configured: false }));
+  }
+
+  async function save() {
+    setSaving(true); setError(null); setSaved(false);
+    try {
+      const res = await apiFetch('/api/email/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Échec');
+      setPassword(''); setSaved(true); load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function disconnect() {
+    if (!window.confirm('Déconnecter le compte Zimbra ? L\'envoi par email sera désactivé.')) return;
+    await apiFetch('/api/email/config', { method: 'DELETE' });
+    setUser(''); setPassword(''); setSaved(false); load();
+  }
+
+  if (!cfg) return <div className="card"><div className="spinner" /></div>;
+
+  return (
+    <div className="card">
+      <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 4, color: 'var(--text)' }}>Compte Zimbra</h2>
+      <p style={{ fontSize: 12, color: 'var(--dim)', marginBottom: 14 }}>
+        Serveur <strong>{cfg.host}</strong> — utilisé pour envoyer les photos et proposer tes contacts.
+      </p>
+
+      {cfg.configured && (
+        <div style={{ padding: 10, borderRadius: 8, marginBottom: 14, fontSize: 13,
+          background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)', color: 'var(--success)' }}>
+          ✓ Connecté en tant que <strong>{cfg.user}</strong>
+        </div>
+      )}
+
+      <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 5 }}>Identifiant</label>
+      <input
+        className="input"
+        value={user}
+        onChange={e => { setUser(e.target.value); setSaved(false); }}
+        placeholder="prenom.nom@cpe.fr"
+        style={{ width: '100%', marginBottom: 12 }}
+      />
+
+      <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 5 }}>Mot de passe</label>
+      <input
+        className="input"
+        type="password"
+        value={password}
+        onChange={e => { setPassword(e.target.value); setSaved(false); }}
+        placeholder={cfg.configured ? '•••••••• (inchangé)' : 'Mot de passe Zimbra'}
+        style={{ width: '100%', marginBottom: 6 }}
+      />
+      <p style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 14 }}>
+        Chiffré avant stockage. Les identifiants sont vérifiés auprès du serveur avant enregistrement.
+      </p>
+
+      {error && (
+        <div style={{ padding: 10, borderRadius: 8, marginBottom: 12, fontSize: 12,
+          background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: 'var(--danger)' }}>
+          {error}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <button className="btn btn-primary btn-sm" onClick={save} disabled={saving || !user.trim() || !password}>
+          {saving ? 'Vérification…' : cfg.configured ? 'Mettre à jour' : 'Connecter'}
+        </button>
+        {cfg.configured && (
+          <button className="btn btn-ghost btn-sm" onClick={disconnect}>Déconnecter</button>
+        )}
+        {saved && <span style={{ fontSize: 12, color: 'var(--success)' }}>✓ Enregistré</span>}
+      </div>
     </div>
   );
 }
